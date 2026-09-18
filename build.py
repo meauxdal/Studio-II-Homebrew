@@ -12,9 +12,9 @@ import sys
 
 
 ROOT = Path(__file__).resolve().parent
-GAMES = ROOT / "Games"
+GAMES = ROOT / "games"
 OUTPUT = ROOT / "build"
-ASMX_SOURCE = ROOT / "asmx" / "src"
+ASMX_SOURCE = ROOT / "tools" / "asmx" / "src"
 
 
 def find_compiler() -> str:
@@ -47,6 +47,10 @@ def build_assembler() -> Path:
     command = [
         compiler,
         "-O2",
+        "-std=gnu89",
+        "-Wno-implicit-int",
+        "-Wno-implicit-function-declaration",
+        "-Wno-return-type",
         '-DVERSION="2.0b5"',
         f"-I{ASMX_SOURCE}",
         "-o",
@@ -127,11 +131,23 @@ def create_st2(descriptor: Path, image: bytearray, destination: Path) -> None:
 def assemble(
     asmx: Path, game_dir: Path, source_name: str, include_checksums: bool = False
 ) -> bytearray:
-    game_output = OUTPUT / game_dir.name
+    game_output = OUTPUT / game_dir.relative_to(GAMES)
     game_output.mkdir(parents=True, exist_ok=True)
     srecord = game_output / f"{Path(source_name).stem}.s9"
+    listing = game_output / f"{Path(source_name).stem}.lst"
     subprocess.run(
-        [str(asmx), "-C", "1802", "-s9", "-ew", "-o", str(srecord), source_name],
+        [
+            str(asmx),
+            "-C",
+            "1802",
+            "-s9",
+            "-l",
+            str(listing),
+            "-ew",
+            "-o",
+            str(srecord),
+            source_name,
+        ],
         cwd=game_dir,
         check=True,
     )
@@ -139,8 +155,8 @@ def assemble(
 
 
 def build_game(asmx: Path, game_dir: Path) -> list[Path]:
-    game_output = OUTPUT / game_dir.name
-    if game_dir.name == "RaceColour":
+    game_output = OUTPUT / game_dir.relative_to(GAMES)
+    if (game_dir / "race_colour.asm").exists():
         image = assemble(asmx, game_dir, "race_colour.asm")
         rom = game_output / "race_colour.rom"
         rom.write_bytes(image[:0x1000])
@@ -160,29 +176,50 @@ def build_game(asmx: Path, game_dir: Path) -> list[Path]:
 
 
 def game_directories(selection: str) -> list[Path]:
-    available = {
-        path.name.lower(): path
-        for path in GAMES.iterdir()
-        if path.is_dir() and ((path / "st2file").exists() or path.name == "RaceColour")
+    targets = sorted(
+        (
+            path
+            for path in GAMES.glob("*/*")
+            if path.is_dir()
+            and ((path / "st2file").exists() or (path / "race_colour.asm").exists())
+        ),
+        key=lambda path: path.as_posix(),
+    )
+    normalized = selection.replace("\\", "/").strip("/").lower()
+    if normalized == "all":
+        return targets
+
+    exact = {
+        path.relative_to(GAMES).as_posix().lower(): path
+        for path in targets
     }
-    if selection.lower() == "all":
-        return sorted(available.values(), key=lambda path: path.name.lower())
-    try:
-        return [available[selection.lower()]]
-    except KeyError:
-        choices = ", ".join(path.name for path in sorted(available.values()))
-        raise SystemExit(f"Unknown game '{selection}'. Choose one of: {choices}, all")
+    if normalized in exact:
+        return [exact[normalized]]
+
+    by_title = [path for path in targets if path.parent.name.lower() == normalized]
+    if by_title:
+        return by_title
+
+    choices = ", ".join(path.relative_to(GAMES).as_posix() for path in targets)
+    raise SystemExit(
+        f"Unknown game or target '{selection}'. Choose a title, all, or one of: {choices}"
+    )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("game", nargs="?", default="all", help="game directory name (default: all)")
+    parser.add_argument(
+        "game",
+        nargs="?",
+        default="all",
+        help="title or title/target (default: all)",
+    )
     args = parser.parse_args()
 
     asmx = build_assembler()
     built: list[Path] = []
     for game_dir in game_directories(args.game):
-        print(f"Building {game_dir.name}...")
+        print(f"Building {game_dir.relative_to(GAMES).as_posix()}...")
         built.extend(build_game(asmx, game_dir))
 
     print("\nBuilt:")

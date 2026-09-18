@@ -1,36 +1,59 @@
 # Studio-II-Homebrew
 
-Studio II-family homebrew games originally by Paul Robson and azya52, with colorization and additional modifications by Alan Steremberg and Elle Ball.
+Homebrew games for the RCA Studio II family, originally written by Paul Robson and azya52, with colour editions and additional modifications by Alan Steremberg and Elle Ball.
 
-## Build the games
+## Games
 
-You need:
+| Game | RCA Studio II | Toshiba Visicom | Studio III NTSC |
+| --- | :---: | :---: | :---: |
+| Asteroids | ✓ | ✓ | — |
+| Berzerk | ✓ | ✓ | — |
+| Combat | ✓ | ✓ | — |
+| Hockey | ✓ | ✓ | — |
+| Invaders | ✓ | — | — |
+| Kaboom | ✓ | — | — |
+| Pacman | ✓ | ✓ | — |
+| Race | — | — | ✓ |
+| Scramble | ✓ | — | — |
 
-- [Python 3.9 or newer](https://www.python.org/downloads/)
-- A C compiler: GCC or Clang
+Some Studio II cartridges include optional CDP1864 colour data while retaining Studio II compatibility. See [Colour hardware](docs/colour-hardware.md) for details.
 
-From the repository root, build every game with:
+## Build
+
+Install [Python 3.9 or newer](https://www.python.org/downloads/) and either GCC or Clang. Then, from the repository root, run:
 
 ```shell
 python build.py
 ```
 
-To build just one game, pass its directory name:
+That builds every supported target. A title builds all of its editions:
 
 ```shell
-python build.py Pacman
+python build.py pacman
 ```
 
-The script builds the included ASMX assembler when needed and puts finished files under `build/<game>/`. Normal games produce both a raw `.bin` image and an emulator-ready `.st2` cartridge. Race Colour produces a 4 KiB `.rom` image for Studio III NTSC.
+You can also select one target explicitly:
 
-On systems where Python 3 is named `python3`, use `python3 build.py` instead.
+```shell
+python build.py pacman/visicom
+```
+
+On systems where Python 3 is named `python3`, use `python3 build.py` instead. The script compiles the included ASMX assembler when necessary and writes finished cartridges under `build/<game>/<target>/`.
+
+Studio II and Visicom targets produce a raw `.bin` image and an emulator-ready `.st2` cartridge. Race produces a flat 4 KiB `.rom` image for the NTSC Studio III.
 
 ## Repository layout
 
-- `Games/` — game source, graphics, metadata, and original per-game build files
-- `asmx/` — source for the bundled multi-assembler
-- `studio2/` — Studio II emulator source
-- `Documents/` — Studio II BIOS and technical source material
-- `Arduino/` — Arduino-related Studio II utilities
+- `games/` — maintained game sources, grouped by title and hardware target
+- `docs/` — colour, Visicom, and historical hardware documentation
+- `tools/asmx/` — the included multi-assembler source
+- `tools/emulator/` — Paul Robson's Studio II emulator source
+- `tools/generator/` — code-generation utilities used by the emulator projects
+- `extras/arduino/` — the historical Arduino port and TV output support
+- `tests/` — legacy and project-level validation utilities
 
-See [COLOUR.md](COLOUR.md) for the color hardware implementation and [VISICOM.md](VISICOM.md) for Toshiba Visicom COM-100 support.
+## Upstream compatibility
+
+The `upstream-compatible` branch retains Paul Robson's original repository layout. Game fixes should be made there first when they may be useful upstream, then merged into `main`. This branch contains the reorganized, end-user-facing edition of the project.
+
+See [Visicom support](docs/visicom.md) for technical details of the Toshiba Visicom COM-100 ports.
