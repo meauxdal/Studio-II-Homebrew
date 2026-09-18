@@ -994,7 +994,7 @@ BandTable:
         .db     1,1,1,1,1,1,1,1         ; band 0  rows 0-3   top invader rows      red
         .db     1,1,1,1,1,1,1,1         ; band 1  rows 4-7   invader rows          red
         .db     5,5,5,5,5,5,5,5         ; band 2  rows 8-11  lowest invader rows   yellow
-        .db     7,7,7,7,7,7,7,7         ; band 3  rows 12-15 open sky              white
+        .db     5,5,5,5,5,5,5,5         ; band 3  rows 12-15 includes score's last row
         .db     7,7,7,7,7,7,7,7         ; band 4  rows 16-19 open sky, missiles    white
         .db     7,7,7,7,7,7,7,7         ; band 5  rows 20-23 open sky, missiles    white
         .db     4,4,4,4,4,4,4,4         ; band 6  rows 24-27 the shields           green

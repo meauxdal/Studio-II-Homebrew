@@ -416,16 +416,15 @@ SpritePlot:
 		add 
 		inc 	r2 											; fix the stack back.
 		adi 	8 											; again, the fix needed because (0,0) is (1,1) this fixes vertically.
-		lbr 	SPRP_Planes 								; COLOUR: D = screen offset, TOS = graphic. The row loop lives on
-															; the $F00 page now because it runs once per bit plane -- see there.
-;
-;	The row loop that used to be here freed 25 bytes, and clearing the second plane at IL_ClearScreen spent 10 of them. The
-;	remaining 15 are left in place on purpose rather than reclaimed. Everything after this point on this page and the pages
-;	below it is laid out around the old size, and 1802 short branches cannot cross a page: pull the code up by 17 bytes and
-;	UpdateLegalMoves straddles $0B00, putting ULM_Exit on the far side of the boundary from two of the branches that reach it.
-;
-		.db 	0,0,0,0,0,0,0,0 							; 15 bytes of deliberate slack, so that everything downstream
-		.db 	0,0,0,0,0,0,0 								; stays exactly where the monochrome port left it.
+		plo 	rf                              ; preserve screen offset across the page switch
+		ldi 	>SPRP_Planes
+		phi 	r5                              ; two-cycle transfer; LBR can delay the video ISR
+SPRP_PlaneEntry:                             ; matching low address on the $F00 page
+		.db 	0,0,0,0,0,0,0
+SPRP_Reenter:
+		glo 	rf                              ; graphic saved by SPRP_Return
+		br 		SpritePlot
+		.db 	0,0,0,0                         ; keep SPRP_Exit and downstream code fixed
 
 SPRP_Exit:
 		ldn 	r2 											; restore D
@@ -1768,7 +1767,17 @@ CI_Loop:
 		inc 	rd
 		glo 	rd
 		bnz 	CI_Loop
-		lbr 	StartGame
+		ldi 	>CI_Start
+		phi 	r4
+		ldi 	<CI_Start
+		plo 	r4
+		sep 	r4
+CI_Start:
+		ldi 	>StartGame
+		phi 	r3
+		ldi 	<StartGame
+		plo 	r3
+		sep 	r3
 
 ; ---------------------------------------------------------------------------------------------------------------------------------------
 ;	FrameColour - called once per frame from the main loop.
@@ -1809,11 +1818,17 @@ FC_Done:
 ;
 ; ***************************************************************************************************************************************
 
-		.org 	$F00
+		.org 	$F00+<SPRP_PlaneEntry
+		br 		SPRP_Planes
+
+		.org 	$F00+<SPRP_Reenter-4
+SPRP_Return:
+		plo 	rf                              ; preserve the next graphic across the page switch
+		ldi 	>SPRP_Reenter
+		phi 	r5                              ; resumes at SPRP_Reenter on the $900 page
 
 SPRP_Planes:
-		plo 	rf 											; park the screen offset (D) before ghi r2 overwrites it -- RF is
-															; ours to break and is about to become the screen pointer anyway.
+															; RF.0 already holds the screen offset.
 		ghi 	r2 											; The screen offset has to survive from one plane pass to the
 		phi 	re 											; next, and it CANNOT live on the stack: the BIOS interrupt
 		ldi 	PlaneBase 									; routine saves three bytes *below* R2 (SAV, STXD, STR R2), so
@@ -1890,7 +1905,7 @@ SPRP_NextPlane:
 		ldn 	r2 											; D = the graphic
 		inc 	r2 											; drop it
 		sep 	r4 											; and return.
-		lbr 	SpritePlot 									; second entry point, as before
+		br 		SPRP_Return                     ; reentrant call without a three-cycle instruction
 
 ;	Which planes each graphic is drawn into, indexed by slot. Keep this in step with the Graphics table.
 

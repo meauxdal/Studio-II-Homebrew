@@ -445,16 +445,15 @@
 092A  F4                		add
 092B  12                		inc 	r2 											; fix the stack back.
 092C  FC 08             		adi 	8 											; again, the fix needed because (0,0) is (1,1) this fixes vertically.
-092E  C0 0F00           		lbr 	SPRP_Planes 								; COLOUR: D = screen offset, TOS = graphic. The row loop lives on
-                        															; the $F00 page now because it runs once per bit plane -- see there.
-                        ;
-                        ;	The row loop that used to be here freed 25 bytes, and clearing the second plane at IL_ClearScreen spent 10 of them. The
-                        ;	remaining 15 are left in place on purpose rather than reclaimed. Everything after this point on this page and the pages
-                        ;	below it is laid out around the old size, and 1802 short branches cannot cross a page: pull the code up by 17 bytes and
-                        ;	UpdateLegalMoves straddles $0B00, putting ULM_Exit on the far side of the boundary from two of the branches that reach it.
-                        ;
-0931  00000000 00000000 		.db 	0,0,0,0,0,0,0,0 							; 15 bytes of deliberate slack, so that everything downstream
-0939  00000000 000000   		.db 	0,0,0,0,0,0,0 								; stays exactly where the monochrome port left it.
+092E  AF                		plo 	rf                              ; preserve screen offset across the page switch
+092F  F8 0F             		ldi 	>SPRP_Planes
+0931  B5                		phi 	r5                              ; two-cycle transfer; LBR can delay the video ISR
+0932                    SPRP_PlaneEntry:                             ; matching low address on the $F00 page
+0932  00000000 000000   		.db 	0,0,0,0,0,0,0
+0939                    SPRP_Reenter:
+0939  8F                		glo 	rf                              ; graphic saved by SPRP_Return
+093A  30 06             		br 		SpritePlot
+093C  00000000          		.db 	0,0,0,0                         ; keep SPRP_Exit and downstream code fixed
 
 0940                    SPRP_Exit:
 0940  02                		ldn 	r2 											; restore D
@@ -1672,7 +1671,7 @@
 
 0EA0  F8 0C             		ldi 	>FrameColour 								; COLOUR: this used to be the chasing-timer decrement and the
 0EA2  B4                		phi 	r4 											; alternate-frame beeper, inline. FrameColour does both, and then
-0EA3  F8 10             		ldi 	<FrameColour 								; sets the palette from the timer. Moved out because this page is
+0EA3  F8 1B             		ldi 	<FrameColour 								; sets the palette from the timer. Moved out because this page is
 0EA5  A4                		plo 	r4 											; full -- the call is 7 bytes where the original block was 16.
 0EA6  D4                		sep 	r4
 
@@ -1797,7 +1796,17 @@
 0C09  1D                		inc 	rd
 0C0A  8D                		glo 	rd
 0C0B  3A 06             		bnz 	CI_Loop
-0C0D  C0 0E25           		lbr 	StartGame
+0C0D  F8 0C             		ldi 	>CI_Start
+0C0F  B4                		phi 	r4
+0C10  F8 14             		ldi 	<CI_Start
+0C12  A4                		plo 	r4
+0C13  D4                		sep 	r4
+0C14                    CI_Start:
+0C14  F8 0E             		ldi 	>StartGame
+0C16  B3                		phi 	r3
+0C17  F8 25             		ldi 	<StartGame
+0C19  A3                		plo 	r3
+0C1A  D3                		sep 	r3
 
                         ; ---------------------------------------------------------------------------------------------------------------------------------------
                         ;	FrameColour - called once per frame from the main loop.
@@ -1806,19 +1815,19 @@
                         ;	The colour it used to set is now decided by which plane each sprite is drawn into, so there is nothing to repaint.
                         ; ---------------------------------------------------------------------------------------------------------------------------------------
 
-0C10                    FrameColour:
-0C10  F8 52             		ldi 	ChasingTimer 								; RA -> chasing timer (RA.1 is already the RAM page)
-0C12  AA                		plo 	ra
-0C13  0A                		ldn 	ra
-0C14  32 20             		bz 		FC_Done 									; not chasing -- nothing to do at all
-0C16  FF 01             		smi 	1 											; decrement it
-0C18  5A                		str 	ra
-0C19  FA 08             		ani 	8 											; beeper on alternate frames, as before
-0C1B  32 20             		bz 		FC_Done
-0C1D  F8 0B             		ldi 	11
-0C1F  57                		str 	r7
-0C20                    FC_Done:
-0C20  D3                		sep 	r3
+0C1B                    FrameColour:
+0C1B  F8 52             		ldi 	ChasingTimer 								; RA -> chasing timer (RA.1 is already the RAM page)
+0C1D  AA                		plo 	ra
+0C1E  0A                		ldn 	ra
+0C1F  32 2B             		bz 		FC_Done 									; not chasing -- nothing to do at all
+0C21  FF 01             		smi 	1 											; decrement it
+0C23  5A                		str 	ra
+0C24  FA 08             		ani 	8 											; beeper on alternate frames, as before
+0C26  32 2B             		bz 		FC_Done
+0C28  F8 0B             		ldi 	11
+0C2A  57                		str 	r7
+0C2B                    FC_Done:
+0C2B  D3                		sep 	r3
 
                         ; ***************************************************************************************************************************************
                         ;
@@ -1838,88 +1847,94 @@
                         ;
                         ; ***************************************************************************************************************************************
 
-0F00                    		.org 	$F00
+0F32                    		.org 	$F00+<SPRP_PlaneEntry
+0F32  30 39             		br 		SPRP_Planes
 
-0F00                    SPRP_Planes:
-0F00  AF                		plo 	rf 											; park the screen offset (D) before ghi r2 overwrites it -- RF is
-                        															; ours to break and is about to become the screen pointer anyway.
-0F01  92                		ghi 	r2 											; The screen offset has to survive from one plane pass to the
-0F02  BE                		phi 	re 											; next, and it CANNOT live on the stack: the BIOS interrupt
-0F03  F8 56             		ldi 	PlaneBase 									; routine saves three bytes *below* R2 (SAV, STXD, STR R2), so
-0F05  AE                		plo 	re 											; anything parked under the stack pointer while the row loop
-0F06  8F                		glo 	rf 											; runs gets overwritten by the saved (X,P), D and DF roughly
-0F07  5E                		str 	re
+0F35                    		.org 	$F00+<SPRP_Reenter-4
+0F35                    SPRP_Return:
+0F35  AF                		plo 	rf                              ; preserve the next graphic across the page switch
+0F36  F8 09             		ldi 	>SPRP_Reenter
+0F38  B5                		phi 	r5                              ; resumes at SPRP_Reenter on the $900 page
+
+0F39                    SPRP_Planes:
+                        															; RF.0 already holds the screen offset.
+0F39  92                		ghi 	r2 											; The screen offset has to survive from one plane pass to the
+0F3A  BE                		phi 	re 											; next, and it CANNOT live on the stack: the BIOS interrupt
+0F3B  F8 56             		ldi 	PlaneBase 									; routine saves three bytes *below* R2 (SAV, STXD, STR R2), so
+0F3D  AE                		plo 	re 											; anything parked under the stack pointer while the row loop
+0F3E  8F                		glo 	rf 											; runs gets overwritten by the saved (X,P), D and DF roughly
+0F3F  5E                		str 	re
                         															; once a frame. It is stored in RAM instead, and R2 never moves
                         															; from the graphic byte SpritePlot pushed -- which is exactly
                         															; the invariant the original single-plane loop relied on.
 
-0F08  02                		ldn 	r2 											; look the plane mask up from the graphic: graphics are four
-0F09  FF 40             		smi 	<Graphics 									; bytes each from Graphics, so (graphic-Graphics)/4 is the slot
-0F0B  F6                		shr
-0F0C  F6                		shr
-0F0D  FC C0             		adi 	<PlaneTable
-0F0F  AE                		plo 	re
-0F10  F8 0F             		ldi 	>PlaneTable
-0F12  BE                		phi 	re
-0F13  0E                		ldn 	re
-0F14  A6                		plo 	r6 											; R6.0 = plane mask: bit 0 is $1100, bit 1 is $1300
-0F15  F8 11             		ldi 	VideoPage
-0F17  B6                		phi 	r6 											; R6.1 = the page this pass draws into
+0F40  02                		ldn 	r2 											; look the plane mask up from the graphic: graphics are four
+0F41  FF 40             		smi 	<Graphics 									; bytes each from Graphics, so (graphic-Graphics)/4 is the slot
+0F43  F6                		shr
+0F44  F6                		shr
+0F45  FC C0             		adi 	<PlaneTable
+0F47  AE                		plo 	re
+0F48  F8 0F             		ldi 	>PlaneTable
+0F4A  BE                		phi 	re
+0F4B  0E                		ldn 	re
+0F4C  A6                		plo 	r6 											; R6.0 = plane mask: bit 0 is $1100, bit 1 is $1300
+0F4D  F8 11             		ldi 	VideoPage
+0F4F  B6                		phi 	r6 											; R6.1 = the page this pass draws into
 
-0F18                    SPRP_PlaneLoop:
-0F18  86                		glo 	r6 											; is this plane wanted?
-0F19  F6                		shr
-0F1A  A6                		plo 	r6 											; keep what is left of the mask
-0F1B  3B 42             		bnf 	SPRP_NextPlane
+0F50                    SPRP_PlaneLoop:
+0F50  86                		glo 	r6 											; is this plane wanted?
+0F51  F6                		shr
+0F52  A6                		plo 	r6 											; keep what is left of the mask
+0F53  3B 7A             		bnf 	SPRP_NextPlane
 
-0F1D  92                		ghi 	r2 											; RF -> the sprite's top left byte in this plane
-0F1E  BE                		phi 	re
-0F1F  F8 56             		ldi 	PlaneBase
-0F21  AE                		plo 	re
-0F22  0E                		ldn 	re
-0F23  AF                		plo 	rf
-0F24  96                		ghi 	r6
-0F25  BF                		phi 	rf
+0F55  92                		ghi 	r2 											; RF -> the sprite's top left byte in this plane
+0F56  BE                		phi 	re
+0F57  F8 56             		ldi 	PlaneBase
+0F59  AE                		plo 	re
+0F5A  0E                		ldn 	re
+0F5B  AF                		plo 	rf
+0F5C  96                		ghi 	r6
+0F5D  BF                		phi 	rf
 
-0F26                    SPRP_Loop:
-0F26  9B                		ghi 	rb 											; put the routine address in RC. RB.1 was its LSB
-0F27  AC                		plo 	rc
-0F28  F8 08             		ldi 	>ShiftXORDrawerBase							; its MSB is a constant.
-0F2A  BC                		phi 	rc
+0F5E                    SPRP_Loop:
+0F5E  9B                		ghi 	rb 											; put the routine address in RC. RB.1 was its LSB
+0F5F  AC                		plo 	rc
+0F60  F8 08             		ldi 	>ShiftXORDrawerBase							; its MSB is a constant.
+0F62  BC                		phi 	rc
 
-0F2B  02                		ldn 	r2 											; read the graphic address into RE.
-0F2C  AE                		plo 	re
-0F2D  F8 08             		ldi 	>Graphics
-0F2F  BE                		phi 	re
-0F30  0E                		ldn 	re 											; read the graphic byte from RE
+0F63  02                		ldn 	r2 											; read the graphic address into RE.
+0F64  AE                		plo 	re
+0F65  F8 08             		ldi 	>Graphics
+0F67  BE                		phi 	re
+0F68  0E                		ldn 	re 											; read the graphic byte from RE
 
-0F31  DC                		sep 	rc 											; call the XOR plotter.
+0F69  DC                		sep 	rc 											; call the XOR plotter.
 
-0F32  8F                		glo 	rf 											; move RF to next line down
-0F33  FC 08             		adi 	8
-0F35  AF                		plo 	rf
+0F6A  8F                		glo 	rf 											; move RF to next line down
+0F6B  FC 08             		adi 	8
+0F6D  AF                		plo 	rf
 
-0F36  02                		ldn 	r2 											; point to next graphics line.
-0F37  FC 01             		adi 	1
-0F39  52                		str 	r2
-0F3A  FA 03             		ani 	3 											; graphics are aligned on address 4, so when this is zero we have drawn it.
-0F3C  3A 26             		bnz		SPRP_Loop
+0F6E  02                		ldn 	r2 											; point to next graphics line.
+0F6F  FC 01             		adi 	1
+0F71  52                		str 	r2
+0F72  FA 03             		ani 	3 											; graphics are aligned on address 4, so when this is zero we have drawn it.
+0F74  3A 5E             		bnz		SPRP_Loop
 
-0F3E  02                		ldn 	r2 											; rewind the graphic ready for the next plane
-0F3F  FF 04             		smi 	4
-0F41  52                		str 	r2
+0F76  02                		ldn 	r2 											; rewind the graphic ready for the next plane
+0F77  FF 04             		smi 	4
+0F79  52                		str 	r2
 
-0F42                    SPRP_NextPlane:
-0F42  96                		ghi 	r6 											; $11 -> $13
-0F43  FC 02             		adi 	2
-0F45  B6                		phi 	r6
-0F46  86                		glo 	r6 											; anything left in the mask?
-0F47  3A 18             		bnz 	SPRP_PlaneLoop
+0F7A                    SPRP_NextPlane:
+0F7A  96                		ghi 	r6 											; $11 -> $13
+0F7B  FC 02             		adi 	2
+0F7D  B6                		phi 	r6
+0F7E  86                		glo 	r6 											; anything left in the mask?
+0F7F  3A 50             		bnz 	SPRP_PlaneLoop
 
-0F49  02                		ldn 	r2 											; D = the graphic
-0F4A  12                		inc 	r2 											; drop it
-0F4B  D4                		sep 	r4 											; and return.
-0F4C  C0 0906           		lbr 	SpritePlot 									; second entry point, as before
+0F81  02                		ldn 	r2 											; D = the graphic
+0F82  12                		inc 	r2 											; drop it
+0F83  D4                		sep 	r4 											; and return.
+0F84  30 35             		br 		SPRP_Return                     ; reentrant call without a three-cycle instruction
 
                         ;	Which planes each graphic is drawn into, indexed by slot. Keep this in step with the Graphics table.
 
@@ -1950,20 +1965,21 @@ BONUSFRAMECOUNTER  0053 E  BONUSINITIALISEDATA                           0D10
 BONUSRATE          00C0 E  BONUS_COLLIDEPLAYER                           0D54
 BONUS_GETSPRITE    0D44    CHASINGTIMER       0052 E  CHASINGZERO        0EA7
 CHECKPLAYEREAT     0BA0    CHERRY             0868    CI_LOOP            0C06
-COLOURINIT         0C00    COLOURPAGE         0013 E  CPE_ADDTENSTOSCORE 0BD4
-CPE_EXIT           0BF4    CPE_ISPELLET       0BF3    DEAD               0EF2
-DEATH              0054 E  EATCOUNTER         0044 E  FC_DONE            0C20
-FIXUPOUTSTANDING   0D2D    FRAME              004C E  FRAMECOLOUR        0C10
-FRAMESPERCHASINGTIMER                         0080 E  FXO_EXIT           0D43
-GCP_EATENGHOST     0E0C    GGM1               0DF7    GGM_CHECKINVERT    0DE1
-GGM_EXIT           0DFC    GGM_HORIZONTAL     0DCF    GGM_HORIZONTAL1    0DDD
-GGM_NOTCHASING     0DEC    GGM_NOTINPEN       0DAA    GGM_RANDOMMOVE     0DEE
-GGM_SAME           0DEE    GGM_VERTICAL1      0DC9    GGS_ALTERNATE      0D7F
-GGS_CHASING        0D82    GHOST1             085C    GHOST2             0860
-GHOSTCAUGHTCOUNTER 0051 E  GHOSTINITIALISEDATA                           0D08
-GHOSTREVERSE       0864    GHOST_COLLIDEPLAYER                           0DFF
-GHOST_GETMOVEMENT  0D85    GHOST_GETSPRITE    0D6C    GRAPHICS           0840
-IL_BOTTOMROW       09BF    IL_CLEARDONE       0970    IL_CLEARSCREEN     0960
+CI_START           0C14    COLOURINIT         0C00    COLOURPAGE         0013 E
+CPE_ADDTENSTOSCORE 0BD4    CPE_EXIT           0BF4    CPE_ISPELLET       0BF3
+DEAD               0EF2    DEATH              0054 E  EATCOUNTER         0044 E
+FC_DONE            0C2B    FIXUPOUTSTANDING   0D2D    FRAME              004C E
+FRAMECOLOUR        0C1B    FRAMESPERCHASINGTIMER                         0080 E
+FXO_EXIT           0D43    GCP_EATENGHOST     0E0C    GGM1               0DF7
+GGM_CHECKINVERT    0DE1    GGM_EXIT           0DFC    GGM_HORIZONTAL     0DCF
+GGM_HORIZONTAL1    0DDD    GGM_NOTCHASING     0DEC    GGM_NOTINPEN       0DAA
+GGM_RANDOMMOVE     0DEE    GGM_SAME           0DEE    GGM_VERTICAL1      0DC9
+GGS_ALTERNATE      0D7F    GGS_CHASING        0D82    GHOST1             085C
+GHOST2             0860    GHOSTCAUGHTCOUNTER 0051 E  
+GHOSTINITIALISEDATA                           0D08    GHOSTREVERSE       0864
+GHOST_COLLIDEPLAYER                           0DFF    GHOST_GETMOVEMENT  0D85
+GHOST_GETSPRITE    0D6C    GRAPHICS           0840    IL_BOTTOMROW       09BF
+IL_CLEARDONE       0970    IL_CLEARSCREEN     0960    
 IL_CLEARSPRITESTORAGE                         0A3F    IL_COPYMAZEDATA    0952
 IL_DRAWCELL        0973    IL_DRAWCELLRESETMASK                          0970
 IL_DRAWLEFTWALL    097B    IL_DRAWLIFEMARKERS 09EA    IL_DRAWPILLS       0A19
@@ -1998,8 +2014,9 @@ SHIFTXORDRAWERBASE 0874    SKBLOOP            08CB    SKBSKIP            08D9
 SLOW               0E88    SLOW2              0E85    SPRITECOUNT        0006 E
 SPRITELOADANDPLOT  08FF    SPRITEPLOT         0906    SPRITERECORDSIZE   0010 E
 SPRITESHIFT        0B44    SPRITESTORAGE      0060 E  SPRITESTORAGEEND   00C0 E
-SPRP_EXIT          0940    SPRP_LOOP          0F26    SPRP_NEXTPLANE     0F42
-SPRP_NOPLOT        0942    SPRP_PLANELOOP     0F18    SPRP_PLANES        0F00
+SPRP_EXIT          0940    SPRP_LOOP          0F5E    SPRP_NEXTPLANE     0F7A
+SPRP_NOPLOT        0942    SPRP_PLANEENTRY    0932    SPRP_PLANELOOP     0F50
+SPRP_PLANES        0F39    SPRP_REENTER       0939    SPRP_RETURN        0F35
 SSH_ADDHORIZONTAL  0B5D    SSH_ADDVERTICAL    0B6B    SSH_DOWN           0B68
 SSH_EXIT           0B6D    SSH_LEFT           0B57    SSH_RIGHT          0B5B
 SSH_UP             0B63    STARTCODE          0800    STARTGAME          0E25
