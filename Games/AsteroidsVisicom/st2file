@@ -4,7 +4,7 @@
 AUTHOR:PR
 DUMPER:PR
 CAT:PSR006
-TITLE:Asteroids Visicom
+TITLE:Asteroids Visicom Capped
 BINARY:asteroids.st2
 SOURCE:asteroids.asm.bin
 CODE:800,4

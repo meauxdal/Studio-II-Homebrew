@@ -6,40 +6,42 @@ NTSC machine.
 
 ## Loading it
 
-Race is a 4 KB image and the core only hands a cartridge the top half, so this
-loads as **two files**, not one:
+Race is built as one flat 4 KB firmware image covering `$0000-$0FFF`:
 
 | file | loads as |
 | --- | --- |
-| `race_colour_lower.rom` | firmware (`--bios`), **not** a cartridge |
-| `race_colour_upper.st2` | the cartridge — pages `$04`, `$0C`-`$0F` |
+| `race_colour.rom` | firmware (`--bios` / F2 Load Firmware) |
 
 Machine must be **Studio III NTSC**:
 
 ```
 obj_dir/Vtop --machine studio3ntsc \
-  --bios .../Games/RaceColour/race_colour_lower.rom \
-  --cart .../Games/RaceColour/race_colour_upper.st2
+  --bios .../Games/RaceColour/race_colour.rom
 ```
 
-`./build.sh` regenerates both from `race_colour.asm` (needs `bin/asmx`).
+On MiSTer, select Studio III NTSC and load `race_colour.rom` with **F2 Load Firmware**.
+The Studio III firmware slot is 4 KB, so the complete image fits without a
+separate cartridge file.
 
-## Why the cartridge carries page $04
+`./build.sh` regenerates `race_colour.rom` from `race_colour.asm` (needs
+`bin/asmx`).
 
-It has to, even though the firmware image already covers `$0400-$04FF`.
+## Image layout
 
-In the core's cartridge loader `st2_mode` is a register that is not resolved
-until ioctl byte 3 has been latched, but `cart_we`/`cart_a` are evaluated on the
-same cycle each byte arrives. For addresses 0-3 `st2_mode` is still 0, so the
-loader takes the raw-`.bin` path and writes the file's own `"RCA2"` magic
-straight to `$0400-$0403`. An ordinary `.st2` hides this because it also carries
-page `$04` and its block overwrites the damage later in the download; a
-cartridge whose page map omits `$04` leaves those four bytes live.
+The assembled program already occupies the correct Studio III address space.
+`build.sh` starts with a 4 KB `$FF`-filled image and places each S-record at its
+assembled address, then writes that complete image directly as `race_colour.rom`.
 
-That is what broke the first version of this: the stray magic landed on
-`colourInit`'s opening `sex r3 / dis / $23 / ldi $0B`, so the `dis` never ran, an
-interrupt arrived between `ldi $0B` and `phi r4`, and R4 came out as `$4100`
-instead of `$0B00`.
+The active code/data is in `$0000-$07FF` and `$0C00-$0FFF`; `$0800-$0BFF`
+remains `$FF` in the ROM image. Those bytes do not need to be removed or packed:
+the flat file preserves the CPU address layout directly.
+
+Earlier builds split the program into `race_colour_lower.rom` plus
+`race_colour_upper.st2`. That was only needed when the upper portion was being
+loaded through the cartridge path. The `.st2` file was a sparse container with a
+256-byte header and selected 256-byte pages, so the two old files could not be
+concatenated byte-for-byte into a valid ROM. A flat 4 KB firmware image removes
+that loader workaround entirely.
 
 ## How the colour works
 
@@ -97,7 +99,12 @@ file plus `colourInit` and the band table.
 
 ## Status
 
-Verified in the headless sim only — `colour: enabled 1`, the table loads as
-designed, and the game plays through frames 60/200/400/650/880 (title screen,
-mountains, road markers, speed 164, score 00063). It has not been played by a
-human or run on hardware.
+The colour build was previously verified in the headless sim using the split
+firmware/cartridge loading method — `colour: enabled 1`, with successful captures
+through frames 60/200/400/650/880 (title screen, mountains, road markers, speed
+164, score 00063).
+
+The single `race_colour.rom` is reconstructed from the same assembled address
+image: its lower 2 KB matches the former `race_colour_lower.rom`, and the former
+`.st2` payload pages match the same addresses in the flat ROM. The single-file
+loading path has not yet been run in the simulator or on hardware.

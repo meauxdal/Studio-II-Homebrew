@@ -1428,10 +1428,23 @@ TimerSync:
 		ldi 	Studio2SyncTimer 							; RA points to S2 sync timer.
 		plo 	ra
 ML_WaitTimer:
-		ldn 	ra
-;		bnz 	ML_WaitTimer
-		ldi 	3
-		str 	ra
+		ldn 	ra 											; SPEED CAP: this wait is commented out in the original, which
+		bnz 	ML_WaitTimer 								; leaves the game with no speed regulation at all -- the main
+		ldi 	1 											; loop simply runs as fast as the work in front of it allows.
+		str 	ra 											; That is fine while the screen is busy and runs away at the end
+															; of a level, when one rock is left and there is almost nothing
+															; to do: the loop rate is a pure function of how much is on
+															; screen. Turning the wait back on and reloading with 1 rather
+															; than 3 caps it at one iteration per video frame, 60 a second.
+															;
+															; The cap is chosen so it never slows the game down from what it
+															; already does: measured at three rocks the loop runs 44 times
+															; in 60 frames, well under the ceiling, so play up to that point
+															; is untouched and only the endgame is bounded. Reload with 2
+															; for a 30/second cap if even that is too quick.
+															;
+															; RA points at $10CE, one of the three counters the BIOS
+															; interrupt decrements once per frame.
 
 ; ---------------------------------------------------------------------------------------------------------------------------------------		
 ; 												Check if level completed.

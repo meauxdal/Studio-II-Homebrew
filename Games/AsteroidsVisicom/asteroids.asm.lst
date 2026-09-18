@@ -1174,7 +1174,7 @@
 0BAF  12                		inc 	r2 											; fix stack
 0BB0  F8 0D             		ldi 	>Dead 										; go to lost life code, jump out of routine.
 0BB2  B3                		phi 	r3
-0BB3  F8 39             		ldi 	<Dead
+0BB3  F8 3B             		ldi 	<Dead
 0BB5  A3                		plo 	r3
 0BB6  D3                		sep 	r3
                         ; ***************************************************************************************************************************************
@@ -1445,154 +1445,167 @@
 0D02  F8 CE             		ldi 	Studio2SyncTimer 							; RA points to S2 sync timer.
 0D04  AA                		plo 	ra
 0D05                    ML_WaitTimer:
-0D05  0A                		ldn 	ra
-                        ;		bnz 	ML_WaitTimer
-0D06  F8 03             		ldi 	3
-0D08  5A                		str 	ra
+0D05  0A                		ldn 	ra 											; SPEED CAP: this wait is commented out in the original, which
+0D06  3A 05             		bnz 	ML_WaitTimer 								; leaves the game with no speed regulation at all -- the main
+0D08  F8 01             		ldi 	1 											; loop simply runs as fast as the work in front of it allows.
+0D0A  5A                		str 	ra 											; That is fine while the screen is busy and runs away at the end
+                        															; of a level, when one rock is left and there is almost nothing
+                        															; to do: the loop rate is a pure function of how much is on
+                        															; screen. Turning the wait back on and reloading with 1 rather
+                        															; than 3 caps it at one iteration per video frame, 60 a second.
+                        															;
+                        															; The cap is chosen so it never slows the game down from what it
+                        															; already does: measured at three rocks the loop runs 44 times
+                        															; in 60 frames, well under the ceiling, so play up to that point
+                        															; is untouched and only the endgame is bounded. Reload with 2
+                        															; for a 30/second cap if even that is too quick.
+                        															;
+                        															; RA points at $10CE, one of the three counters the BIOS
+                        															; interrupt decrements once per frame.
 
                         ; ---------------------------------------------------------------------------------------------------------------------------------------		
                         ; 												Check if level completed.
                         ; ---------------------------------------------------------------------------------------------------------------------------------------		
 
-0D09  F8 00             		ldi 	AsteroidBase 								; set RA point to asteroid base
-0D0B  AA                		plo 	ra
-0D0C                    ML_CheckCompleted:
-0D0C  0A                		ldn 	ra 											; read ra
-0D0D  FE                		shl 												; shift alive bit into DF
-0D0E  3B 27             		bnf 	LongBranchMainLoop							; if there's a live asteroid keep going round.
-0D10  8A                		glo 	ra 											; go to next record.
-0D11  FC 08             		adi 	AsteroidRecSize
-0D13  AA                		plo 	ra
-0D14  FB 80             		xri 	AsteroidEnd 								; check all asteroids
-0D16  3A 0C             		bnz 	ML_CheckCompleted
+0D0B  F8 00             		ldi 	AsteroidBase 								; set RA point to asteroid base
+0D0D  AA                		plo 	ra
+0D0E                    ML_CheckCompleted:
+0D0E  0A                		ldn 	ra 											; read ra
+0D0F  FE                		shl 												; shift alive bit into DF
+0D10  3B 29             		bnf 	LongBranchMainLoop							; if there's a live asteroid keep going round.
+0D12  8A                		glo 	ra 											; go to next record.
+0D13  FC 08             		adi 	AsteroidRecSize
+0D15  AA                		plo 	ra
+0D16  FB 80             		xri 	AsteroidEnd 								; check all asteroids
+0D18  3A 0E             		bnz 	ML_CheckCompleted
 
-0D18  F8 E3             		ldi 	Level 										; completed level - bump to next.
-0D1A  AA                		plo 	ra
-0D1B  0A                		ldn 	ra
-0D1C  FC 01             		adi 	1
-0D1E  5A                		str 	ra
+0D1A  F8 E3             		ldi 	Level 										; completed level - bump to next.
+0D1C  AA                		plo 	ra
+0D1D  0A                		ldn 	ra
+0D1E  FC 01             		adi 	1
+0D20  5A                		str 	ra
 
-0D1F  F8 0A             		ldi 	>StartNewLevel 								; start a new level.
-0D21  BC                		phi 	rc
-0D22  F8 22             		ldi 	<StartNewLevel
-0D24  AC                		plo 	rc
-0D25  30 2D             		br 		LongBranchToRC
+0D21  F8 0A             		ldi 	>StartNewLevel 								; start a new level.
+0D23  BC                		phi 	rc
+0D24  F8 22             		ldi 	<StartNewLevel
+0D26  AC                		plo 	rc
+0D27  30 2F             		br 		LongBranchToRC
 
                         ; ---------------------------------------------------------------------------------------------------------------------------------------		
                         ; 											Loop around because we have no LBR
                         ; ---------------------------------------------------------------------------------------------------------------------------------------		
 
-0D27                    LongBranchMainLoop:
-0D27  F8 0A             Loop2:	ldi 	>MainLoop
-0D29  BC                		phi 	rc
-0D2A  F8 6E             		ldi 	<MainLoop
-0D2C  AC                		plo 	rc
+0D29                    LongBranchMainLoop:
+0D29  F8 0A             Loop2:	ldi 	>MainLoop
+0D2B  BC                		phi 	rc
+0D2C  F8 6E             		ldi 	<MainLoop
+0D2E  AC                		plo 	rc
 
-0D2D                    LongBranchToRC:
-0D2D  F8 0D             		ldi 	>JumpToRC 										; so we're stuck with this.
-0D2F  B4                		phi 	r4
-0D30  F8 34             		ldi 	<JumpToRC
-0D32  A4                		plo 	r4
-0D33  D4                		sep 	r4
+0D2F                    LongBranchToRC:
+0D2F  F8 0D             		ldi 	>JumpToRC 										; so we're stuck with this.
+0D31  B4                		phi 	r4
+0D32  F8 36             		ldi 	<JumpToRC
+0D34  A4                		plo 	r4
+0D35  D4                		sep 	r4
 
-0D34                    JumpToRC: 														; here with P = 4
-0D34  9C                		ghi 	rc 												; copy RC to R3
-0D35  B3                		phi 	r3
-0D36  8C                		glo 	rc
-0D37  A3                		plo 	r3
-0D38  D3                		sep 	r3 												; jump to r3
+0D36                    JumpToRC: 														; here with P = 4
+0D36  9C                		ghi 	rc 												; copy RC to R3
+0D37  B3                		phi 	r3
+0D38  8C                		glo 	rc
+0D39  A3                		plo 	r3
+0D3A  D3                		sep 	r3 												; jump to r3
 
                         ; ---------------------------------------------------------------------------------------------------------------------------------------		
                         ;															Life Lost
                         ; ---------------------------------------------------------------------------------------------------------------------------------------		
 
-0D39  92                Dead:	ghi 	r2 												; point RF to Lives
-0D3A  BF                		phi		rf
-0D3B  F8 E2             		ldi 	Lives
-0D3D  AF                		plo 	rf
-0D3E  0F                		ldn 	rf 												; decrement lives count
-0D3F  FF 01             		smi 	1
-0D41  5F                		str 	rf
+0D3B  92                Dead:	ghi 	r2 												; point RF to Lives
+0D3C  BF                		phi		rf
+0D3D  F8 E2             		ldi 	Lives
+0D3F  AF                		plo 	rf
+0D40  0F                		ldn 	rf 												; decrement lives count
+0D41  FF 01             		smi 	1
+0D43  5F                		str 	rf
 
-0D42  32 5B             		bz 		GameOver
+0D44  32 5D             		bz 		GameOver
 
-0D44  F8 00             		ldi 	AsteroidBase 									; set all the new flags in the asteroids as Restart will clear screen.
-0D46  AF                		plo 	rf
-0D47                    DeadSetNew:
-0D47  0F                		ldn 	rf
-0D48  F9 40             		ori 	$40
-0D4A  5F                		str 	rf
-0D4B  8F                		glo		rf
-0D4C  FC 08             		adi 	AsteroidRecSize
-0D4E  AF                		plo 	rf
-0D4F  FB 80             		xri 	AsteroidEnd
-0D51  3A 47             		bnz		DeadSetNew
+0D46  F8 00             		ldi 	AsteroidBase 									; set all the new flags in the asteroids as Restart will clear screen.
+0D48  AF                		plo 	rf
+0D49                    DeadSetNew:
+0D49  0F                		ldn 	rf
+0D4A  F9 40             		ori 	$40
+0D4C  5F                		str 	rf
+0D4D  8F                		glo		rf
+0D4E  FC 08             		adi 	AsteroidRecSize
+0D50  AF                		plo 	rf
+0D51  FB 80             		xri 	AsteroidEnd
+0D53  3A 49             		bnz		DeadSetNew
 
-0D53  F8 0A             		ldi 	>RestartCurrentLevel 							; restart the current level
-0D55  BC                		phi 	rc
-0D56  F8 29             		ldi 	<RestartCurrentLevel
-0D58  AC                		plo 	rc
-0D59  30 2D             		br 		LongBranchToRC
+0D55  F8 0A             		ldi 	>RestartCurrentLevel 							; restart the current level
+0D57  BC                		phi 	rc
+0D58  F8 29             		ldi 	<RestartCurrentLevel
+0D5A  AC                		plo 	rc
+0D5B  30 2F             		br 		LongBranchToRC
 
                         ; ---------------------------------------------------------------------------------------------------------------------------------------		
                         ;															Game Over
                         ; ---------------------------------------------------------------------------------------------------------------------------------------		
 
-0D5B                    GameOver:
-0D5B  92                		ghi 	r2 										; point RD to the score.
-0D5C  BD                		phi 	rd
-0D5D  F8 E5             		ldi 	Score
-0D5F  AD                		plo 	rd
-0D60  F8 06             		ldi 	6 										; make 3 LSBs of E 110 (screen position)
-0D62  AE                		plo 	re
-0D63  F8 0D             		ldi 	>WriteDisplayByte 						; point RA to the byte-writer
-0D65  BA                		phi 	ra
-0D66  F8 9A             		ldi 	<WriteDisplayByte
-0D68  AA                		plo 	ra
+0D5D                    GameOver:
+0D5D  92                		ghi 	r2 										; point RD to the score.
+0D5E  BD                		phi 	rd
+0D5F  F8 E5             		ldi 	Score
+0D61  AD                		plo 	rd
+0D62  F8 06             		ldi 	6 										; make 3 LSBs of E 110 (screen position)
+0D64  AE                		plo 	re
+0D65  F8 0D             		ldi 	>WriteDisplayByte 						; point RA to the byte-writer
+0D67  BA                		phi 	ra
+0D68  F8 9C             		ldi 	<WriteDisplayByte
+0D6A  AA                		plo 	ra
 
-0D69                    ScoreWriteLoop:
-0D69  8E                		glo 	re 										; convert 3 LSBs of RE to screen address
-0D6A  FA 07             		ani 	7
-0D6C  FC 58             		adi 	128-40
-0D6E  AE                		plo 	re
-0D6F  F8 11             		ldi 	VideoPage 								; put in video page
-0D71  BE                		phi 	re
+0D6B                    ScoreWriteLoop:
+0D6B  8E                		glo 	re 										; convert 3 LSBs of RE to screen address
+0D6C  FA 07             		ani 	7
+0D6E  FC 58             		adi 	128-40
+0D70  AE                		plo 	re
+0D71  F8 11             		ldi 	VideoPage 								; put in video page
+0D73  BE                		phi 	re
 
-0D72  F8 FF             		ldi 	$FF
-0D74  DA                		sep 	ra
-0D75  F8 00             		ldi		$00
-0D77  DA                		sep 	ra
+0D74  F8 FF             		ldi 	$FF
+0D76  DA                		sep 	ra
+0D77  F8 00             		ldi		$00
+0D79  DA                		sep 	ra
 
-0D78  4D                		lda 	rd 										; read next score digit
-0D79  FC 10             		adi 	$10 									; score table offset in BIOS
-0D7B  A4                		plo 	r4
-0D7C  F8 02             		ldi 	$02 									; read from $210+n
-0D7E  B4                		phi 	r4
-0D7F  04                		ldn 	r4 										; into D, the new offset
-0D80  A4                		plo 	r4 										; put into R4, R4 now contains 5 rows graphic data
+0D7A  4D                		lda 	rd 										; read next score digit
+0D7B  FC 10             		adi 	$10 									; score table offset in BIOS
+0D7D  A4                		plo 	r4
+0D7E  F8 02             		ldi 	$02 									; read from $210+n
+0D80  B4                		phi 	r4
+0D81  04                		ldn 	r4 										; into D, the new offset
+0D82  A4                		plo 	r4 										; put into R4, R4 now contains 5 rows graphic data
 
-0D81  F8 05             		ldi 	5 										; set R5.0 to 6
-0D83  A5                		plo 	r5
-0D84                    OutputChar:
-0D84  44                		lda 	r4 										; read character and advance
-0D85  F6                		shr 											; centre in byte
-0D86  F6                		shr
-0D87  DA                		sep 	ra 										; output it
-0D88  25                		dec 	r5 										; decrement counter
-0D89  85                		glo 	r5
-0D8A  3A 84             		bnz 	OutputChar 								; loop back if nonzero
+0D83  F8 05             		ldi 	5 										; set R5.0 to 6
+0D85  A5                		plo 	r5
+0D86                    OutputChar:
+0D86  44                		lda 	r4 										; read character and advance
+0D87  F6                		shr 											; centre in byte
+0D88  F6                		shr
+0D89  DA                		sep 	ra 										; output it
+0D8A  25                		dec 	r5 										; decrement counter
+0D8B  85                		glo 	r5
+0D8C  3A 86             		bnz 	OutputChar 								; loop back if nonzero
 
-0D8C  F8 00             		ldi		$00
-0D8E  DA                		sep 	ra
-0D8F  F8 FF             		ldi 	$FF
-0D91  DA                		sep 	ra
+0D8E  F8 00             		ldi		$00
+0D90  DA                		sep 	ra
+0D91  F8 FF             		ldi 	$FF
+0D93  DA                		sep 	ra
 
-0D92  2E                		dec 	re 										; previous value of 3 LSBs.
-0D93  8E                		glo 	re
-0D94  FA 07             		ani 	7
-0D96  3A 69             		bnz 	ScoreWriteLoop
+0D94  2E                		dec 	re 										; previous value of 3 LSBs.
+0D95  8E                		glo 	re
+0D96  FA 07             		ani 	7
+0D98  3A 6B             		bnz 	ScoreWriteLoop
 
-0D98  30 98             Halt:	br 		Halt
+0D9A  30 9A             Halt:	br 		Halt
 
                         ; ***************************************************************************************************************************************
                         ;
@@ -1600,13 +1613,13 @@
                         ;
                         ; ***************************************************************************************************************************************
 
-0D9A                    WriteDisplayByte:
-0D9A  5E                		str 	re 											; save result
-0D9B  8E                		glo 	re 											; down one row
-0D9C  FC 08             		adi 	8
-0D9E  AE                		plo 	re
-0D9F  D3                		sep 	r3
-0DA0  30 9A             		br 		WriteDisplayByte
+0D9C                    WriteDisplayByte:
+0D9C  5E                		str 	re 											; save result
+0D9D  8E                		glo 	re 											; down one row
+0D9E  FC 08             		adi 	8
+0DA0  AE                		plo 	re
+0DA1  D3                		sep 	r3
+0DA2  30 9C             		br 		WriteDisplayByte
 
                         ; ***************************************************************************************************************************************
                         ;
@@ -1673,18 +1686,18 @@ CBP_PLANE1         0E06    CC_ABS1            0B3D    CC_ABS2            0B4C
 CC_LOOP            0B2B    CC_LOSTLIFE        0BA7    CC_NEWROCKS        0B7E
 CC_NEXT            0B9D    CLEARBOTHPLANES    0E00    COLLISIONCHECK     0B1D
 COLOURPAGE         0013 E  DA_ASTEROID2       0850    DA_EXIT            0859
-DA_NOT0            0845    DEAD               0D39    DEADSETNEW         0D47
+DA_NOT0            0845    DEAD               0D3B    DEADSETNEW         0D49
 DIRECTIONTABLE     0988    DRAWASTEROID       0802    DRAWPIXEL          09A2
 DRAWPIXELLOAD      0998    DRAWPLAYERSPRITE   0933    DRAWSPRITE         0943
-DS_EXIT            096F    DS_LOOP            0963    GAMEOVER           0D5B
-HALT               0D98    IAFINDSLOT         09D4    IAFOUNDSLOT        09E3
+DS_EXIT            096F    DS_LOOP            0963    GAMEOVER           0D5D
+HALT               0D9A    IAFINDSLOT         09D4    IAFOUNDSLOT        09E3
 INITIALISELEVEL    0AEE    INSERTASTEROID     09CE    ISVISIBLE          0093 E
-JUMPTORC           0D34    LASTFIRE           0096 E  LEVEL              00E3 E
-LIVES              00E2 E  LONGBRANCHMAINLOOP 0D27    LONGBRANCHTORC     0D2D
-LOOP2              0D27    MAINLOOP           0A6E    MASKTABLE          08AB
+JUMPTORC           0D36    LASTFIRE           0096 E  LEVEL              00E3 E
+LIVES              00E2 E  LONGBRANCHMAINLOOP 0D29    LONGBRANCHTORC     0D2F
+LOOP2              0D29    MAINLOOP           0A6E    MASKTABLE          08AB
 MISSILEBASE        0080 E  MISSILECOUNT       0004 E  MISSILEEND         0090 E
 MISSILELIFESPAN    0018 E  MISSILERECSIZE     0004 E  ML_ADDPOINTS       0CE1
-ML_BUMPDIGIT       0CEC    ML_CHECKCOMPLETED  0D0C    ML_COLLISIONLOOP   0CCD
+ML_BUMPDIGIT       0CEC    ML_CHECKCOMPLETED  0D0E    ML_COLLISIONLOOP   0CCD
 ML_COLLISIONNEXT   0CD9    ML_DONTNEEDERASE   0AA0    ML_ENDADDPOINTS    0CF8
 ML_ENDPLAYERMOVE   0C85    ML_EXIT            0895    ML_FINDFREEMISSILE 0C60
 ML_FOUNDFREEMISSILESPACE                      0C6E    ML_JUMPPAGE        0AE7
@@ -1694,7 +1707,7 @@ ML_NEXTASTEROID    0AAF    ML_NEXTASTEROID2   0ACF    ML_NEXTMISSILE     0CC0
 ML_NOTLEFT         0C31    ML_NOTRIGHT        0C35    ML_PLAYERMOVE      0C19
 ML_REDRAWPLAYER    0C45    ML_WAITTIMER       0D05    MOVEDOWN           0898
 MOVELEFT           087D    MOVEOBJECT         0970    MOVEPLAYERSECTION  0C00
-OUTPUTCHAR         0D84    PLAYERSPEED        00A0 E  PLOTPIXEL          0861
+OUTPUTCHAR         0D86    PLAYERSPEED        00A0 E  PLOTPIXEL          0861
 POINTSTOADD        00E4 E  PP_LEFTSIDE        0872    R0                 0000 E
 R1                 0001 E  R2                 0002 E  R3                 0003 E
 R4                 0004 E  R5                 0005 E  R6                 0006 E
@@ -1705,7 +1718,7 @@ RCL_CLEAR          0A33    RCL_CLEARDONE      0A3A    RCL_CLEARMISSILES  0A5D
 RCL_LIVES          0A41    RCL_WAIT5          0A66    RD                 000D E
 RE                 000E E  RESTARTCURRENTLEVEL                           0A29
 RF                 000F E  RN_NOXOR           09C8    ROTATION           0092 E
-SCANKEYPAD         0912    SCORE              00E5 E  SCOREWRITELOOP     0D69
+SCANKEYPAD         0912    SCORE              00E5 E  SCOREWRITELOOP     0D6B
 SECONDROMBASE      0C00    SHIFTXORDRAWERBASE 08B3    SKBLOOP            0919
 SKBSET             0927    SKBSKIP            0929    SNL_INSERTLOOP     0B0C
 SPEEDCOUNTER       0095 E  STARTCODE          0800    STARTGAME          0A10
@@ -1714,4 +1727,4 @@ SXD0               08DB    SXD1               08DA    SXD2               08D9
 SXD3               08D8    SXD4               08D7    SXD5               08DF
 SXD6               08C9    SXD7               08C1    SXDXORWORD         08E9
 TIMERSYNC          0D00    VIDEOPAGE          0011 E  VISIMASK           0094 E
-WRITEDISPLAYBYTE   0D9A    XPLAYER            0090 E  YPLAYER            0091 E
+WRITEDISPLAYBYTE   0D9C    XPLAYER            0090 E  YPLAYER            0091 E

@@ -19,9 +19,9 @@ cp race_colour.asm race_colour.asm.bak
 trap 'mv race_colour.asm.bak race_colour.asm' EXIT
 sed -i '' "s|^bandTable:.*|bandTable:	.db $1|" race_colour.asm
 ./build.sh >/dev/null
-"$SIM" --machine studio3ntsc --bios race_colour_lower.rom --cart race_colour_upper.st2 \
+"$SIM" --machine studio3ntsc --bios race_colour.rom \
        --frames 130 --shot 118 --outdir . --prefix "${TAG}_title" >/dev/null 2>&1
-"$SIM" --machine studio3ntsc --bios race_colour_lower.rom --cart race_colour_upper.st2 \
+"$SIM" --machine studio3ntsc --bios race_colour.rom \
        --frames 3010 --shot 3000 --outdir . --prefix "${TAG}_race" --press b2@100:2900 >/dev/null 2>&1
 echo "wrote ${TAG}_title_f00118.png and ${TAG}_race_f03000.png"
-echo "note: race_colour.asm is restored on exit; the built .rom/.st2 are NOT"
+echo "note: race_colour.asm is restored on exit; the built race_colour.rom is NOT"
