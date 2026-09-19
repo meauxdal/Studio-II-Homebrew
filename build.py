@@ -158,23 +158,36 @@ def assemble(
 
 def build_game(asmx: Path, game_dir: Path) -> list[Path]:
     game_output = OUTPUT / game_dir.relative_to(GAMES)
-    if (game_dir / "race_colour.asm").exists():
-        image = assemble(asmx, game_dir, "race_colour.asm")
-        rom = game_output / "race_colour.rom"
-        rom.write_bytes(image[:0x1000])
-        return [rom]
-
     descriptor = game_dir / "st2file"
     fields, _ = read_descriptor(descriptor)
-    source_name = Path(fields["SOURCE"]).name.removesuffix(".bin")
+    source_field = Path(fields["SOURCE"]).name
+    source_name = source_field.removesuffix(".bin")
     # Preserve the original s9tobinary.py behavior for byte-identical builds.
-    image = assemble(asmx, game_dir, source_name, include_checksums=True)
+    image = assemble(
+        asmx, game_dir, source_name, include_checksums=source_field.endswith(".bin")
+    )
     stem = Path(source_name).stem
-    binary = game_output / f"{stem}.bin"
     cartridge = game_output / Path(fields["BINARY"]).name
-    binary.write_bytes(image[0x400:0x1000])
     create_st2(descriptor, image, cartridge)
-    return [binary, cartridge]
+    built = [cartridge]
+
+    if source_field.endswith(".bin"):
+        binary = game_output / f"{stem}.bin"
+        binary.write_bytes(image[0x400:0x1000])
+        built.insert(0, binary)
+
+    if "ROM" in fields:
+        rom = game_output / Path(fields["ROM"]).name
+        rom.write_bytes(image[:0x1000])
+        built.append(rom)
+
+    if "TEXT" in fields:
+        text_source = game_dir / fields["TEXT"]
+        text_destination = game_output / text_source.name
+        shutil.copyfile(text_source, text_destination)
+        built.append(text_destination)
+
+    return built
 
 
 def game_directories(selection: str) -> list[Path]:
@@ -182,8 +195,7 @@ def game_directories(selection: str) -> list[Path]:
         (
             path
             for path in GAMES.glob("*/*")
-            if path.is_dir()
-            and ((path / "st2file").exists() or (path / "race_colour.asm").exists())
+            if path.is_dir() and (path / "st2file").exists()
         ),
         key=lambda path: path.as_posix(),
     )

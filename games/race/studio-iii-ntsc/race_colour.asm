@@ -1244,6 +1244,17 @@ globalStateCountDownEnd:
 finishRoad:
 		inc rRoadSectorAdr
 		inc rRoadSectorAdr
+		; The two padding bytes after a road lead to the next road header.
+		; After the final road, loop back to the first header instead of
+		; interpreting the graphics at $E00 as another road.
+		glo rRoadSectorAdr
+		smi <roadDataEnd
+		bnz finishRoadNext
+		ldi >roadData1
+		phi rRoadSectorAdr
+		ldi <roadData1
+		plo rRoadSectorAdr
+finishRoadNext:
 		ldi 1
 		plo rGlobalState
 		lbr waitVsync
@@ -1389,6 +1400,7 @@ startRoad2:
 		.db 0, 0, 0, 0, 0, 0, 2, 2, 0, 3,-3, 0, 0, 2,-2, 1,-1, 0, 0,-2,-1, 0, 0, 1, 1, 2, 2, 0, 0
 finishRoad2:
 		.db 0, 0
+roadDataEnd:
 
 		.org $E00
 btmFudji:

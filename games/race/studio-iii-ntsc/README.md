@@ -6,10 +6,12 @@ NTSC machine.
 
 ## Loading it
 
-Race is built as one flat 4 KB firmware image covering `$0000-$0FFF`:
+Race is assembled as a 4 KB address image covering `$0000-$0FFF`, then packaged
+in two forms:
 
 | file | loads as |
 | --- | --- |
+| `race_colour.st2` | normal cartridge load |
 | `race_colour.rom` | firmware (`--bios` / F2 Load Firmware) |
 
 Machine must be **Studio III NTSC**:
@@ -19,11 +21,12 @@ obj_dir/Vtop --machine studio3ntsc \
   --bios .../build/race/studio-iii-ntsc/race_colour.rom
 ```
 
-On MiSTer, select Studio III NTSC and load `race_colour.rom` with **F2 Load Firmware**.
-The Studio III firmware slot is 4 KB, so the complete image fits without a
-separate cartridge file.
+On MiSTer, select Studio III NTSC and load `race_colour.st2` normally. The
+original 4 KB firmware-image distribution remains available as
+`race_colour.rom` for **F2 Load Firmware**.
 
-`python build.py race` regenerates `race_colour.rom` from `race_colour.asm`.
+`python build.py race` regenerates both files from `race_colour.asm` and copies
+the accompanying `race_colour.txt` release notes.
 
 ## Image layout
 
@@ -91,10 +94,12 @@ long enough to be caught by it.
 
 ## Changes to azya52's source
 
-`race_multicart.asm` is their original with one byte fixed: Reset loaded the
-entry address with `phi r3` where the comment says `R3.Low = main`; it must be
-`plo r3`, or the machine jumps to `$0000` and hangs. `race_colour.asm` is that
-file plus `colourInit` and the band table.
+`race_multicart.asm` is their original with two fixes. Reset loaded the entry
+address with `phi r3` where the comment says `R3.Low = main`; it must be `plo
+r3`, or the machine jumps to `$0000` and hangs. The finish-line transition now
+loops from the second road back to the first road instead of reading the
+graphics table as a nonexistent third road. Score and timer state are retained.
+`race_colour.asm` contains the same fixes plus `colourInit` and the band table.
 
 ## Status
 
@@ -103,7 +108,6 @@ firmware/cartridge loading method — `colour: enabled 1`, with successful captu
 through frames 60/200/400/650/880 (title screen, mountains, road markers, speed
 164, score 00063).
 
-The single `race_colour.rom` is reconstructed from the same assembled address
-image: its lower 2 KB matches the former `race_colour_lower.rom`, and the former
-`.st2` payload pages match the same addresses in the flat ROM. The single-file
-loading path has not yet been run in the simulator or on hardware.
+Both `race_colour.rom` and `race_colour.st2` are reconstructed from the same
+assembled address image. The `.st2` stores pages `$00-$07` and `$0C-$0F`; its
+payload matches those addresses in the flat ROM and leaves the RAM gap unmapped.

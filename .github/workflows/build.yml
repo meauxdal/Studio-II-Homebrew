@@ -33,4 +33,5 @@ jobs:
             build/**/*.bin
             build/**/*.st2
             build/**/*.rom
+            build/**/*.txt
           if-no-files-found: error

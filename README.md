@@ -40,7 +40,9 @@ python build.py pacman/visicom
 
 On systems where Python 3 is named `python3`, use `python3 build.py` instead. The script compiles the included ASMX assembler when necessary and writes finished cartridges under `build/<game>/<target>/`.
 
-Studio II and Visicom targets produce a raw `.bin` image and an emulator-ready `.st2` cartridge. Race produces a flat 4 KiB `.rom` image for the NTSC Studio III.
+Studio II and Visicom targets produce a raw `.bin` image and an emulator-ready
+`.st2` cartridge. Race produces an emulator-ready `.st2`, its original flat
+4 KiB `.rom` firmware image, and release notes.
 
 ## Repository layout
 
