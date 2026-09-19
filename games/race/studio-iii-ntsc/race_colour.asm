@@ -49,8 +49,11 @@ _loop:		glo r0
 
 MAX_SEGMENT_Y = 27	;up to 31
 MAX_SPEED = 23 ;230
-TIMER_START_LO = 0
-TIMER_START_HI = 9
+TIMER_START_LO = 5
+TIMER_START_HI = 7
+START_BEEP_FRAMES = 6
+TONE_B4 = 0xE1
+TONE_B5 = 0x70
 START_PERSPECTIVE_Y = 17
 LIGHT_POSITION_Y = 101 ;lower byte
 WHEEL_LIMIT = 8 ;-8..8
@@ -78,6 +81,8 @@ rRoadSectorAdr = 10
 rMarksWidthY = 11
 rHiSpeed = 12
 rloSpeedCounter = 12
+rBeepTimer = 13
+rTonePointer = 14
 rGlobalState = 15
 
 mRoadSize = 51
@@ -128,6 +133,7 @@ clearRamLoop:
 		bnz clearRamLoop
 
 		phi rLoTimer		; = 0
+		plo rBeepTimer		; no countdown beep active
 
 
 		ldi >marksWidthY
@@ -761,7 +767,54 @@ scanTurnKeyEnd:
 		lbz waitVsync
 
 		lbr calcRoadOrShiftHorizon
-	
+
+
+		.org $3B0
+; Countdown-light sound. Values target the nominal Studio III NTSC clock:
+; B4 ~= 494.96 Hz, B5 ~= 989.92 Hz, with an exact 2:1 divider ratio.
+countdownBeepTick:
+		glo rBeepTimer
+		bz countdownBeepTickDone
+		smi 1
+		plo rBeepTimer
+		bnz countdownBeepTickDone
+		req
+countdownBeepTickDone:
+		lbr globalStateCountDownTimer
+
+countdownBeepStart:
+		; State 5..9 are the five actual light-illumination transitions.
+		glo rGlobalState
+		smi 5
+		bnf countdownBeepStartDone
+		smi 5
+		bdf countdownBeepStartDone
+
+		ldi START_BEEP_FRAMES
+		plo rBeepTimer
+		glo rGlobalState
+		smi 9
+		bz countdownBeepHigh
+
+		ldi >countdownToneB4
+		phi rTonePointer
+		ldi <countdownToneB4
+		br countdownBeepOut
+countdownBeepHigh:
+		ldi >countdownToneB5
+		phi rTonePointer
+		ldi <countdownToneB5
+countdownBeepOut:
+		plo rTonePointer
+		sex rTonePointer
+		out 4
+		seq
+countdownBeepStartDone:
+		lbr globalStateCountDownDraw
+
+countdownToneB4:	.db TONE_B4
+countdownToneB5:	.db TONE_B5
+
 
 		.org $400
 ; ---------------------------------------------------------------------------
@@ -1179,6 +1232,8 @@ clearLight:
 		br globalStateCountDownEnd
 		
 globalStateCountDown:
+		lbr countdownBeepTick
+globalStateCountDownTimer:
 
 		;every 0.75s
 		glo rLoTimer
@@ -1195,6 +1250,8 @@ globalStateCountDown:
 		sex rRowAdr
 
 		inc rGlobalState
+		lbr countdownBeepStart
+globalStateCountDownDraw:
 		glo rGlobalState
 		smi 11
 		bz clearLight
@@ -1255,6 +1312,8 @@ finishRoad:
 		ldi <roadData1
 		plo rRoadSectorAdr
 finishRoadNext:
+		lbr addRoadTime
+finishRoadResume:
 		ldi 1
 		plo rGlobalState
 		lbr waitVsync
@@ -1376,7 +1435,41 @@ btmTopText:
 		.db 00101100b, 10001000b, 10100000b, 00100101b, 01010000b, 00000010b, 10001010b, 11001000b
 		.db 11001000b, 11101110b, 11000000b, 00100101b, 01011100b, 00001100b, 11101110b, 10101110b
 
-		
+
+		.org $CA0
+; Add 55 seconds in packed decimal display digits. If an unusually fast road
+; would exceed the two-digit display, hold at 99 rather than wrapping.
+addRoadTime:
+		ldi <mTimerLow
+		plo rDataPointer
+		ldn rDataPointer
+		adi 5
+		smi 10
+		bnf addRoadNoOnesCarry
+		str rDataPointer
+		ldi 6			; +5 tens plus carry
+		br addRoadTens
+addRoadNoOnesCarry:
+		adi 10			; undo trial subtraction
+		str rDataPointer
+		ldi 5
+addRoadTens:
+		dec rDataPointer
+		sex rDataPointer
+		add
+		smi 10
+		bnf addRoadStoreTens
+		ldi 9
+		str rDataPointer
+		inc rDataPointer
+		str rDataPointer
+		lbr finishRoadResume
+addRoadStoreTens:
+		adi 10
+		str rDataPointer
+		lbr finishRoadResume
+
+
 		.org $D00	
 
 marksWidthY:
@@ -1510,5 +1603,3 @@ btmCaptionEnd:
 		.org 0xfff
 		.db 0xff
 		.end
-
-		

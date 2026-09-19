@@ -181,12 +181,6 @@ def build_game(asmx: Path, game_dir: Path) -> list[Path]:
         rom.write_bytes(image[:0x1000])
         built.append(rom)
 
-    if "TEXT" in fields:
-        text_source = game_dir / fields["TEXT"]
-        text_destination = game_output / text_source.name
-        shutil.copyfile(text_source, text_destination)
-        built.append(text_destination)
-
     return built
 
 
