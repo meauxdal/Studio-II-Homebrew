@@ -49,8 +49,8 @@ _loop:		glo r0
 
 MAX_SEGMENT_Y = 27	;up to 31
 MAX_SPEED = 23 ;230
-TIMER_START_LO = 5
-TIMER_START_HI = 7
+TIMER_START_LO = 0
+TIMER_START_HI = 8
 START_BEEP_FRAMES = 6
 TONE_B4 = 0xE1
 TONE_B5 = 0x70
@@ -780,7 +780,7 @@ countdownBeepTick:
 		bnz countdownBeepTickDone
 		req
 countdownBeepTickDone:
-		lbr globalStateCountDownTimer
+		lbr drawSpeedAndTimer
 
 countdownBeepStart:
 		; State 5..9 are the five actual light-illumination transitions.
@@ -809,9 +809,8 @@ countdownBeepOut:
 		sex rTonePointer
 		out 4
 		seq
-		sex rRowAdr
 countdownBeepStartDone:
-		lbr globalStateCountDownDraw
+		lbr waitVsync
 
 countdownToneB4:	.db TONE_B4
 countdownToneB5:	.db TONE_B5
@@ -1234,13 +1233,13 @@ clearLight:
 		br globalStateCountDownEnd
 		
 globalStateCountDown:
-		lbr countdownBeepTick
-globalStateCountDownTimer:
 
 		;every 0.75s
 		glo rLoTimer
 		adi 208
-		lbnf drawSpeedAndTimer
+		bdf globalStateCountDownTimer
+		lbr countdownBeepTick
+globalStateCountDownTimer:
 		glo rLoTimer
 		ani 0x0F
 		plo rLoTimer
@@ -1252,7 +1251,6 @@ globalStateCountDownTimer:
 		sex rRowAdr
 
 		inc rGlobalState
-		lbr countdownBeepStart
 globalStateCountDownDraw:
 		glo rGlobalState
 		smi 11
@@ -1297,7 +1295,7 @@ drawLightEnd:
 		bdf drawLight
 		
 globalStateCountDownEnd:
-		lbr waitVsync
+		lbr countdownBeepStart
 		
 
 finishRoad:
