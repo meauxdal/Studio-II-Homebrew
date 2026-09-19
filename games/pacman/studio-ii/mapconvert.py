@@ -6,7 +6,7 @@ class FakeScreen:
 	def __init__(self):
 		self.screen = [" "*64]*32
 	def printScreen(self):		
-		print "\n".join(self.screen)
+		print("\n".join(self.screen))
 	def set(self,x,y):
 		self.screen[y] = self.screen[y][:x] + "*" + self.screen[y][x+1:]
 	def hline(self,x,y,s):
@@ -20,7 +20,8 @@ class FakeScreen:
 			y = y + 1
 			s = s - 1
 
-lines = open("map.dat").readlines()
+with open("map.dat") as map_file:
+	lines = map_file.readlines()
 lines = [x.strip() for x in lines if x.strip() != "" and (x+" ")[0] != ';']
 
 if len(lines) != 6:
@@ -72,7 +73,7 @@ for n in range(0,60):
 	if n % 5 == 0:
 		mapBytes[n] |= 16
 
-print mapBytes
+print(mapBytes)
 s = FakeScreen()
 
 for row in range(0,10):
@@ -100,4 +101,4 @@ for n in range(0,60):
 f = open("mapbytes.inc","w")
 for row in range(0,6):
 	f.write("        .db     "+",".join(mapBytes[row*10:row*10+10])+"\n");
-f.close()	
+f.close()

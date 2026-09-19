@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
+import platform
 import shutil
 import subprocess
 import sys
@@ -32,7 +33,8 @@ def find_compiler() -> str:
 
 
 def build_assembler() -> Path:
-    tool_dir = OUTPUT / "tools"
+    platform_tag = f"{platform.system().lower()}-{platform.machine().lower()}"
+    tool_dir = OUTPUT / "tools" / platform_tag
     tool_dir.mkdir(parents=True, exist_ok=True)
     executable = tool_dir / ("asmx.exe" if os.name == "nt" else "asmx")
     sources = sorted(ASMX_SOURCE.glob("*.c"))

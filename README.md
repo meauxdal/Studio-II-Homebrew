@@ -50,7 +50,6 @@ Studio II and Visicom targets produce a raw `.bin` image and an emulator-ready `
 - `tools/emulator/` — Paul Robson's Studio II emulator source
 - `tools/generator/` — code-generation utilities used by the emulator projects
 - `extras/arduino/` — the historical Arduino port and TV output support
-- `tests/` — legacy and project-level validation utilities
 
 ## Upstream compatibility
 
