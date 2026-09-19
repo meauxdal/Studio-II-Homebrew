@@ -809,6 +809,7 @@ countdownBeepOut:
 		sex rTonePointer
 		out 4
 		seq
+		sex rRowAdr
 countdownBeepStartDone:
 		lbr globalStateCountDownDraw
 
@@ -1201,10 +1202,11 @@ initTopInfo:
 		ldi <chr_
 		stxd
 		stxd
-		ldi <chr0+<TIMER_START_LO
-		stxd
-		ldi <chr0+<TIMER_START_HI
-		stxd
+		lbr initTimer
+		nop
+		nop
+		nop
+initTopInfoRest:
 		ldi <chr_
 		stxd
 		stxd
@@ -1469,6 +1471,23 @@ addRoadStoreTens:
 		str rDataPointer
 		lbr finishRoadResume
 
+initTimer:
+		ldn rDataPointer
+		bnz keepTimerLow
+		dec rDataPointer
+		ldn rDataPointer
+		bnz keepTimerHigh
+		inc rDataPointer
+		ldi <chr0+<TIMER_START_LO
+		stxd
+		ldi <chr0+<TIMER_START_HI
+		stxd
+		lbr initTopInfoRest
+keepTimerLow:
+		dec rDataPointer
+keepTimerHigh:
+		dec rDataPointer
+		lbr initTopInfoRest
 
 		.org $D00	
 
