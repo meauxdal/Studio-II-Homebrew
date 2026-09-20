@@ -112,11 +112,10 @@ countdown beep is six frames longer than the preceding four beeps. Roadside
 sound bookkeeping runs only on non-road-draw frames so it does not consume the
 raster margin used by the finish-line renderer.
 
-The current timing pass preserves the exact 60-frame subsecond phase across road
-transitions. During the paused between-road sequence, the digit line shows the
-completed road number, elapsed road time to hundredths (rounded from 1/60-second
-frames), and the existing score. The normal race display is restored before the
-next road starts.
+The current timing test is deliberately limited to preserving the existing
+60-frame subsecond phase across road transitions. It does not add result-screen
+or centisecond drawing yet. The original race display, road transition, timer
+seconds, +60-second award, and start sequence remain otherwise unchanged.
 
 ## Status
 

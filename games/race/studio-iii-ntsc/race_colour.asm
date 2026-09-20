@@ -105,174 +105,15 @@ mScoreSpace = 66
 mScoreHi = 67
 mScoreLow = 71
 
+; Saved subsecond phase for a completed road. R6.0 remains the live timer
+; phase while driving; this snapshot exists only to carry that phase across
+; the between-road countdown without consuming race time.
 mRacePhase = 74
-mRoadStartPhase = 75
-mRoadElapsedSec = 76
-mRoadNumberHi = 77
-mRoadNumberLow = 78
-mNextTimerHi = 79
-mNextTimerLow = 80
-mResultFrames = 81
-mResultSeconds = 82
-mScratch = 83
+mRacePhaseValid = 75
 
 mBtmDigits = RAM+88
 mBtmHorizonStart = RAM+128
 mBtmHorizonEnd = RAM+255
-
-
-		.org $30
-roadSecondElapsed:
-		ldi <mRoadElapsedSec
-		plo rDataPointer
-		ldn rDataPointer
-		adi 1
-		str rDataPointer
-		lbr drawSpeedAndTimer
-
-beginRoad:
-		ldi <mRacePhase
-		plo rDataPointer
-		ldn rDataPointer
-		plo rLoTimer
-		inc rDataPointer
-		str rDataPointer
-		inc rDataPointer
-		ldi 0
-		str rDataPointer
-		plo rGlobalState
-		phi rHiCounter
-		lbr drawRoad
-
-finishRoadStats:
-		; Preserve the exact 60 Hz phase across the paused countdown.
-		ldi <mRacePhase
-		plo rDataPointer
-		glo rLoTimer
-		str rDataPointer
-
-		; End phase -> frame 0-59.
-		plo r4buf
-		bz finishEndPhaseZero
-		smi 1
-		plo r5Buf
-		glo r4buf
-		smi 17
-		bnf finishEndPhase17
-		dec r5Buf
-finishEndPhase17:
-		glo r4buf
-		smi 33
-		bnf finishEndPhase33
-		dec r5Buf
-finishEndPhase33:
-		glo r4buf
-		smi 49
-		bnf finishEndPhaseDone
-		dec r5Buf
-		br finishEndPhaseDone
-finishEndPhaseZero:
-		ldi 0
-		plo r5Buf
-finishEndPhaseDone:
-		ldi <mResultFrames
-		plo rDataPointer
-		glo r5Buf
-		str rDataPointer
-
-		; Start phase -> frame 0-59.
-		ldi <mRoadStartPhase
-		plo rDataPointer
-		ldn rDataPointer
-		plo r4buf
-		bz finishStartPhaseZero
-		smi 1
-		plo r5Buf
-		glo r4buf
-		smi 17
-		bnf finishStartPhase17
-		dec r5Buf
-finishStartPhase17:
-		glo r4buf
-		smi 33
-		bnf finishStartPhase33
-		dec r5Buf
-finishStartPhase33:
-		glo r4buf
-		smi 49
-		bnf finishStartPhaseDone
-		dec r5Buf
-		br finishStartPhaseDone
-finishStartPhaseZero:
-		ldi 0
-		plo r5Buf
-finishStartPhaseDone:
-		ldi <mScratch
-		plo rDataPointer
-		glo r5Buf
-		str rDataPointer
-
-		; Fractional road time is end-start modulo 60.
-		sex rDataPointer
-		ldi <mResultFrames
-		plo rDataPointer
-		ldn rDataPointer
-		ldi <mScratch
-		plo rDataPointer
-		sex rDataPointer
-		sm
-		bdf finishPhaseNoBorrow
-		adi 60
-		plo r4buf
-		ldi <mRoadElapsedSec
-		plo rDataPointer
-		ldn rDataPointer
-		bz finishPhaseBorrowDone
-		smi 1
-		str rDataPointer
-finishPhaseBorrowDone:
-		glo r4buf
-finishPhaseNoBorrow:
-		ldi <mResultFrames
-		plo rDataPointer
-		str rDataPointer
-
-		ldi <mRoadElapsedSec
-		plo rDataPointer
-		ldn rDataPointer
-		plo r4buf
-		ldi <mResultSeconds
-		plo rDataPointer
-		glo r4buf
-		str rDataPointer
-
-		; Completed-road counter, 00-99.
-		ldi <mRoadNumberLow
-		plo rDataPointer
-		ldn rDataPointer
-		adi 1
-		smi 10
-		bnf finishRoadNumberLow
-		ldi 0
-		str rDataPointer
-		dec rDataPointer
-		ldn rDataPointer
-		adi 1
-		smi 10
-		bnf finishRoadNumberHigh
-		ldi 9
-		str rDataPointer
-		inc rDataPointer
-		str rDataPointer
-		lbr addRoadTime
-finishRoadNumberHigh:
-		adi 10
-		str rDataPointer
-		lbr addRoadTime
-finishRoadNumberLow:
-		adi 10
-		str rDataPointer
-		lbr addRoadTime
 
 	.org 100h
 start:
@@ -435,7 +276,6 @@ updateTimerBtm:
 updateTimerBtmDec:
 		smi 1
 		stxd
-		lbr roadSecondElapsed
 updateTimerBtmEnd:
 
 drawSpeedAndTimer:
@@ -984,7 +824,9 @@ countdownBeepOut:
 		out 4
 		seq
 countdownBeepStartDone:
-		lbr waitVsync
+		; Same-size hook: restore a saved road phase only after the final
+		; countdown frame. The normal startRace path remains untouched.
+		lbr countdownPhaseRestore
 
 countdownToneB4:	.db TONE_B4
 countdownToneB5:	.db TONE_B5
@@ -1079,157 +921,63 @@ bandTable:	.db 1,3,7,7,7,6,1,3		;red magenta white white white cyan red magenta
 ;  Value 2 is blue, the same as the background, so it is never usable here.
 
 
+; -----------------------------------------------------------------------------
+; Race DX v1.05 fractional-phase preservation
+;
+; Helpers live in the unused $0430-$04FF gap. Existing code, graphics, tables
+; and data retain their v1.05 addresses. The original packed-decimal seconds
+; timer is unchanged.
+;
+; finishRoad is selected on the refresh after drawRoad raises state 12, so R6.0
+; has advanced by one hidden timer tick even though whole seconds are no longer
+; decremented. Undo that encoded tick before saving the phase. The v1.05 phase
+; counter skips 01/11/21/31 hex because it takes an extra increment when the
+; low nibble is zero: values ending in 2 therefore need -2; all others need -1.
+
 		.org $430
-showRoadResult:
-		; Save the awarded timer before using the line for road results.
-		ldi <mTimerHi
-		plo r5Buf
-		ldi <mNextTimerHi
-		plo rDataPointer
-		ldn r5Buf
-		str rDataPointer
-		inc r5Buf
-		inc rDataPointer
-		ldn r5Buf
-		str rDataPointer
+finishRoadPhaseSave:
+		req
+		inc rRoadSectorAdr
+		inc rRoadSectorAdr
 
-		; Rxx
-		ldi <mSpeedHi
+		glo rLoTimer
+		plo r4buf
+		ani $0F
+		smi 2
+		bnz finishRoadPhaseMinusOne
+		glo r4buf
+		smi 2
+		br finishRoadPhaseStore
+finishRoadPhaseMinusOne:
+		glo r4buf
+		smi 1
+finishRoadPhaseStore:
+		plo r4buf
+		ldi <mRacePhase
 		plo rDataPointer
-		ldi <chrR
-		str rDataPointer
-		inc rDataPointer
-		ldi <mRoadNumberHi
-		plo r5Buf
-		ldn r5Buf
-		adi <chr0
-		str rDataPointer
-		inc rDataPointer
-		inc r5Buf
-		ldn r5Buf
-		adi <chr0
-		str rDataPointer
-		inc rDataPointer
-		ldi <chr_
-		str rDataPointer
-
-		; SS
-		ldi <mResultSeconds
-		plo r5Buf
-		ldn r5Buf
-		plo r4buf
-		ldi 0
-		plo r5Buf
-showSecondsLoop:
 		glo r4buf
-		smi 10
-		bnf showSecondsDone
-		plo r4buf
-		inc r5Buf
-		br showSecondsLoop
-showSecondsDone:
-		inc rDataPointer
-		glo r5Buf
-		adi <chr0
 		str rDataPointer
 		inc rDataPointer
-		glo r4buf
-		adi <chr0
-		str rDataPointer
-		inc rDataPointer
-		ldi <chrDot
-		str rDataPointer
-
-		; CC = round(frames * 100 / 60).
-		ldi <mResultFrames
-		plo r5Buf
-		ldn r5Buf
-		plo r4buf
-		shl
-		adi 1
-		plo r5Buf
-		ldi 0
-		phi r5Buf
-showCentiThirds:
-		glo r5Buf
-		smi 3
-		bnf showCentiThirdsDone
-		plo r5Buf
-		ghi r5Buf
-		adi 1
-		phi r5Buf
-		br showCentiThirds
-showCentiThirdsDone:
-		ldi <mScratch
-		plo rDataPointer
-		ghi r5Buf
-		str rDataPointer
-		sex rDataPointer
-		glo r4buf
-		add
-		plo r4buf
-		ldi 0
-		plo r5Buf
-showCentiTens:
-		glo r4buf
-		smi 10
-		bnf showCentiDone
-		plo r4buf
-		inc r5Buf
-		br showCentiTens
-showCentiDone:
-		ldi <mTimerLowSpace
-		plo rDataPointer
-		glo r5Buf
-		adi <chr0
-		str rDataPointer
-		inc rDataPointer
-		glo r4buf
-		adi <chr0
-		str rDataPointer
-
 		ldi 1
-		plo rGlobalState
-		lbr waitVsync
+		str rDataPointer
+		lbr finishRoadPhaseReturn
 
-restoreRaceUi:
-		ldi <mRoadNumberLow
+; Called only from the existing post-countdown path, after that frame's light
+; drawing and beep work are complete. On the initial start the validity byte is
+; zero, so v1.05's original countdown phase reaches startRace unchanged.
+countdownPhaseRestore:
+		glo rGlobalState
+		smi 11
+		bnz countdownPhaseWait
+		ldi <mRacePhaseValid
 		plo rDataPointer
 		ldn rDataPointer
-		bnz restoreRaceUiDo
+		bz countdownPhaseWait
 		dec rDataPointer
 		ldn rDataPointer
-		bz restoreRaceUiDone
-restoreRaceUiDo:
-		ldi <mSpeedHi
-		plo rDataPointer
-		ldi <chr0
-		str rDataPointer
-		inc rDataPointer
-		str rDataPointer
-		inc rDataPointer
-		str rDataPointer
-		inc rDataPointer
-		ldi <chr_
-		str rDataPointer
-		inc rDataPointer
-		str rDataPointer
-		inc rDataPointer
-		ldi <mNextTimerHi
-		plo r5Buf
-		ldn r5Buf
-		str rDataPointer
-		inc rDataPointer
-		inc r5Buf
-		ldn r5Buf
-		str rDataPointer
-		inc rDataPointer
-		ldi <chr_
-		str rDataPointer
-		inc rDataPointer
-		str rDataPointer
-restoreRaceUiDone:
-		lbr globalStateCountDownDraw
+		plo rLoTimer
+countdownPhaseWait:
+		lbr waitVsync
 
 		.org $500
 calcRoadOrShiftHorizon:
@@ -1546,12 +1294,31 @@ notZero:
 		stxd
 
 initTopInfo:
-		lbr initTopInfoDispatch
+		ldi <mScoreSpace
+		plo rDataPointer
+		ldi <chr_
+		stxd
+		stxd
+		lbr initTimer
+		nop
 initTopInfoRest:
+		ldi <chr_
+		stxd
+		stxd
+		ldi <chr0
+		stxd
+		stxd
+		stxd
+		;todo: need more cicles
 		lbr waitVsync
 
+		
 startRace:
-		lbr beginRoad
+		;put zeros
+		plo rGlobalState
+		phi rHiCounter
+		lbr drawRoad
+
 
 rRowAdr = r5Buf
 clearLight:
@@ -1579,7 +1346,7 @@ globalStateCountDownTimer:
 		plo rRowAdr	
 		sex rRowAdr
 
-		lbr countdownAdvance
+		inc rGlobalState
 globalStateCountDownDraw:
 		glo rGlobalState
 		smi 11
@@ -1628,9 +1395,10 @@ globalStateCountDownEnd:
 		
 
 finishRoad:
-		req
-		inc rRoadSectorAdr
-		inc rRoadSectorAdr
+		; Same-size hook replacing REQ + two INCs. The helper performs all
+		; three original operations before saving the fractional race phase.
+		lbr finishRoadPhaseSave
+finishRoadPhaseReturn:
 		; The two padding bytes after a road lead to the next road header.
 		; After the final road, loop back to the first header instead of
 		; interpreting the graphics at $E00 as another road.
@@ -1642,11 +1410,12 @@ finishRoad:
 		ldi <roadData1
 		plo rRoadSectorAdr
 finishRoadNext:
-		lbr finishRoadStats
+		lbr addRoadTime
 finishRoadResume:
-		lbr showRoadResult
+		ldi 1
+		plo rGlobalState
+		lbr waitVsync
 
-		.org $6CC
 btmLightTop:
 		.db 11111110b, 11111111b, 11111111b, 01111111b
 		.db 00000001b, 00000000b, 00000000b, 10000000b
@@ -1764,10 +1533,6 @@ btmTopText:
 		.db 00101100b, 10001000b, 10100000b, 00100101b, 01010000b, 00000010b, 10001010b, 11001000b
 		.db 11001000b, 11101110b, 11000000b, 00100101b, 01011100b, 00001100b, 11101110b, 10101110b
 
-
-		.org $C99
-chrDot:	.db <btmDot
-btmDot:	.db 0,0,0,0,01000100b
 
 		.org $CA0
 ; Add 60 seconds in packed decimal display digits. If an unusually fast road
@@ -1977,43 +1742,6 @@ btmCaption:
 		.db 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00
 btmCaptionEnd:
 		.db 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-
-		.org $F99
-initTopInfoDispatch:
-		ldi <mRoadNumberLow
-		plo rDataPointer
-		ldn rDataPointer
-		bnz initTopInfoKeepResult
-		dec rDataPointer
-		ldn rDataPointer
-		bnz initTopInfoKeepResult
-
-		ldi <mScoreSpace
-		plo rDataPointer
-		ldi <chr_
-		stxd
-		stxd
-		ldi <chr0+<TIMER_START_LO
-		stxd
-		ldi <chr0+<TIMER_START_HI
-		stxd
-		ldi <chr_
-		stxd
-		stxd
-		ldi <chr0
-		stxd
-		stxd
-		stxd
-initTopInfoKeepResult:
-		lbr waitVsync
-
-countdownAdvance:
-		inc rGlobalState
-		glo rGlobalState
-		smi 10
-		lbz restoreRaceUi
-		lbr globalStateCountDownDraw
-
 		.org 0xfff
 		.db 0xff
 		.end
