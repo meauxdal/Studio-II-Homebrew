@@ -1,8 +1,8 @@
-# Race — CDP1864 colour
+# Race DX — CDP1864 colour
 
-Colour for azya52's beam-raced *Race* (<https://github.com/azya52/rcastudioii>,
-write-up at <https://habr.com/ru/articles/422277/>), running on the Studio III
-NTSC machine.
+Extended colour build of azya52's beam-raced *Race*
+(<https://github.com/azya52/rcastudioii>, write-up at
+<https://habr.com/ru/articles/422277/>), running on the Studio III NTSC machine.
 
 ## Loading it
 
@@ -24,6 +24,10 @@ obj_dir/Vtop --machine studio3ntsc \
 On MiSTer, select Studio III NTSC and load `race_colour.st2` normally. The
 original 4 KB firmware-image distribution remains available as
 `race_colour.rom` for **F2 Load Firmware**.
+
+On the initial load, press **CLEAR** once before playing. Without that first
+reset the title display can occasionally start in a bad raster state. This has
+only been observed on the initial load; subsequent starts are stable.
 
 `python build.py race` regenerates both files from `race_colour.asm` and copies
 the accompanying `race_colour.txt` release notes.
@@ -89,11 +93,9 @@ ends with `lbr start`. Reset first forces the CDP1861 display off, then
 `colourInit` disables CPU interrupts (`sex r3 / dis / $23`) while loading the
 colour table.
 
-A warm CLEAR can otherwise leave the display running at an arbitrary raster
-phase and occasionally start the title in a bad state. Reset uses four `OUT 1`
-pulses: they force the display off while taking the CDP1862 background through
-its complete four-colour cycle back to blue. `INP 1` is deferred until RAM and
-the title interrupt vector are initialized.
+`OUT 1` is left alone during colour initialization because it also affects the
+display-enable path on this machine. `INP 1` is deferred until RAM and the title
+interrupt vector are initialized.
 
 ## Changes to azya52's source
 
@@ -103,6 +105,12 @@ r3`, or the machine jumps to `$0000` and hangs. The finish-line transition now
 loops from the second road back to the first road instead of reading the
 graphics table as a nonexistent third road. Score and timer state are retained.
 `race_colour.asm` contains the same fixes plus `colourInit` and the band table.
+
+Race DX v1.04 also adds a short periodic low-tone pulse while the car is on the
+roadside. The pulse is deliberately brief rather than sustained. The final
+countdown beep is six frames longer than the preceding four beeps. Roadside
+sound bookkeeping runs only on non-road-draw frames so it does not consume the
+raster margin used by the finish-line renderer.
 
 ## Status
 

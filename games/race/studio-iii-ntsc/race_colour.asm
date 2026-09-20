@@ -52,6 +52,9 @@ MAX_SPEED = 23 ;230
 TIMER_START_LO = 5
 TIMER_START_HI = 6
 START_BEEP_FRAMES = 6
+FINAL_BEEP_FRAMES = 12
+ROAD_BEEP_TICKS = 1
+ROAD_BEEP_GAP_TICKS = 6
 TONE_B4 = 0xE1
 TONE_B5 = 0x70
 START_PERSPECTIVE_Y = 17
@@ -738,6 +741,9 @@ moreCalledAtHigherSpeed:
 
 
 scanTurnKey:
+		; Keep sound work off raster-sensitive road-draw frames.
+		lbr roadsideBeepTick
+scanTurnKeyInput:
 		glo rLoWheel 
 		adi WHEEL_LIMIT
 		adi 255-WHEEL_LIMIT*2
@@ -790,17 +796,19 @@ countdownBeepStart:
 		smi 5
 		bdf countdownBeepStartDone
 
-		ldi START_BEEP_FRAMES
-		plo rBeepTimer
 		glo rGlobalState
 		smi 9
 		bz countdownBeepHigh
+		ldi START_BEEP_FRAMES
+		plo rBeepTimer
 
 		ldi >countdownToneB4
 		phi rTonePointer
 		ldi <countdownToneB4
 		br countdownBeepOut
 countdownBeepHigh:
+		ldi FINAL_BEEP_FRAMES
+		plo rBeepTimer
 		ldi >countdownToneB5
 		phi rTonePointer
 		ldi <countdownToneB5
@@ -814,6 +822,28 @@ countdownBeepStartDone:
 
 countdownToneB4:	.db TONE_B4
 countdownToneB5:	.db TONE_B5
+
+; Short roadside pulse with a quiet gap between retriggers.
+roadsideBeepStart:
+		ldi ROAD_BEEP_GAP_TICKS
+		phi rBeepTimer
+		ldi ROAD_BEEP_TICKS
+		plo rBeepTimer
+		ldi >countdownToneB4
+		phi rTonePointer
+		ldi <countdownToneB4
+		plo rTonePointer
+		sex rTonePointer
+		out 4
+		seq
+		lbr scanTurnKeyInput
+
+roadsideBeepStop:
+		ldi 0
+		phi rBeepTimer
+		plo rBeepTimer
+		req
+		lbr scanTurnKeyInput
 
 
 		.org $400
@@ -1141,6 +1171,7 @@ selectGlobalState:
 	
 		;state other
 gameOver:						  
+		req
 		lbr waitVsync
 		
 
@@ -1202,8 +1233,6 @@ initTopInfo:
 		stxd
 		stxd
 		lbr initTimer
-		nop
-		nop
 		nop
 initTopInfoRest:
 		ldi <chr_
@@ -1299,6 +1328,7 @@ globalStateCountDownEnd:
 		
 
 finishRoad:
+		req
 		inc rRoadSectorAdr
 		inc rRoadSectorAdr
 		; The two padding bytes after a road lead to the next road header.
@@ -1486,6 +1516,33 @@ keepTimerLow:
 keepTimerHigh:
 		dec rDataPointer
 		lbr initTopInfoRest
+
+		.org $CDF
+roadsideBeepTick:
+		ghi rHiCarX
+		adi ROAD_LIMIT
+		adi 255-ROAD_LIMIT*2
+		bnf roadsideBeepQuiet
+
+		glo rBeepTimer
+		bz roadsideBeepCadence
+		smi 1
+		plo rBeepTimer
+		bnz roadsideBeepDone
+		req
+roadsideBeepDone:
+		lbr scanTurnKeyInput
+
+roadsideBeepCadence:
+		ghi rBeepTimer
+		bz roadsideBeepTrigger
+		smi 1
+		phi rBeepTimer
+		br roadsideBeepDone
+roadsideBeepTrigger:
+		lbr roadsideBeepStart
+roadsideBeepQuiet:
+		lbr roadsideBeepStop
 
 		.org $D00	
 
