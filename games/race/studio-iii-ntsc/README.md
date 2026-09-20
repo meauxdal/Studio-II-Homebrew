@@ -106,11 +106,17 @@ loops from the second road back to the first road instead of reading the
 graphics table as a nonexistent third road. Score and timer state are retained.
 `race_colour.asm` contains the same fixes plus `colourInit` and the band table.
 
-Race DX v1.04 also adds a short periodic low-tone pulse while the car is on the
+Race DX v1.05 also adds a short periodic low-tone pulse while the car is on the
 roadside. The pulse is deliberately brief rather than sustained. The final
 countdown beep is six frames longer than the preceding four beeps. Roadside
 sound bookkeeping runs only on non-road-draw frames so it does not consume the
 raster margin used by the finish-line renderer.
+
+The current timing pass preserves the exact 60-frame subsecond phase across road
+transitions. During the paused between-road sequence, the digit line shows the
+completed road number, elapsed road time to hundredths (rounded from 1/60-second
+frames), and the existing score. The normal race display is restored before the
+next road starts.
 
 ## Status
 
