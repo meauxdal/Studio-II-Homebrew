@@ -85,12 +85,15 @@ Colouring per graphic rather than per band would need the table indexed by each
 element's own ROM address; that has not been done.
 
 `colourInit` sits at `$0400`, which is `$FF` filler in the original image, and
-ends with `lbr start`. It disables interrupts first (`sex r3 / dis / $23`),
-because Reset still has R1 pointing at the `VideoInt` stub and the table loop is
-long enough to be caught by it.
+ends with `lbr start`. Reset first forces the CDP1861 display off, then
+`colourInit` disables CPU interrupts (`sex r3 / dis / $23`) while loading the
+colour table.
 
-`OUT 1` would step the background off blue, but on the 1861/1862 NTSC path
-`OUT 1` is also display-off, so it is left alone. Blue reads as sky anyway.
+A warm CLEAR can otherwise leave the display running at an arbitrary raster
+phase and occasionally start the title in a bad state. Reset uses four `OUT 1`
+pulses: they force the display off while taking the CDP1862 background through
+its complete four-colour cycle back to blue. `INP 1` is deferred until RAM and
+the title interrupt vector are initialized.
 
 ## Changes to azya52's source
 

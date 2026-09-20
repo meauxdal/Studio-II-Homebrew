@@ -49,8 +49,8 @@ _loop:		glo r0
 
 MAX_SEGMENT_Y = 27	;up to 31
 MAX_SPEED = 23 ;230
-TIMER_START_LO = 0
-TIMER_START_HI = 8
+TIMER_START_LO = 5
+TIMER_START_HI = 6
 START_BEEP_FRAMES = 6
 TONE_B4 = 0xE1
 TONE_B5 = 0x70
@@ -1437,13 +1437,13 @@ btmTopText:
 
 
 		.org $CA0
-; Add 55 seconds in packed decimal display digits. If an unusually fast road
+; Add 60 seconds in packed decimal display digits. If an unusually fast road
 ; would exceed the two-digit display, hold at 99 rather than wrapping.
 addRoadTime:
 		ldi <mTimerLow
 		plo rDataPointer
 		ldn rDataPointer
-		adi 5
+		adi 0
 		smi 10
 		bnf addRoadNoOnesCarry
 		str rDataPointer
@@ -1452,7 +1452,7 @@ addRoadTime:
 addRoadNoOnesCarry:
 		adi 10			; undo trial subtraction
 		str rDataPointer
-		ldi 5
+		ldi 6
 addRoadTens:
 		dec rDataPointer
 		sex rDataPointer
