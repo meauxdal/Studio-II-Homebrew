@@ -101,9 +101,16 @@ mTimerHiSpace = 62
 mTimerHi = 63
 mTimerLow = 64
 mTimerLowSpace = 65
-mScoreSpace = 66
-mScoreHi = 67
-mScoreLow = 71
+; Elapsed race time occupies the former score field.  During racing it is
+; shown as SSS.T plus one blank cell.  The 0..5 sub-tenth remainder retains the
+; exact 60 Hz frame fraction even though only tenths are drawn live.
+mElapsedSecHi = 66
+mElapsedSecMid = 67
+mElapsedSecLow = 68
+mElapsedDot = 69
+mElapsedTenth = 70
+mElapsedBlank = 71
+mElapsedFrac = 72		; exact 0..5 frame remainder within the displayed tenth
 
 ; Saved subsecond phase for a completed road. R6.0 remains the live timer
 ; phase while driving; this snapshot exists only to carry that phase across
@@ -717,7 +724,7 @@ main:
 
 checkGlobalState:
 		glo rGlobalState
-		lbnz selectGlobalState
+		lbr elapsedTimeGate
 
 updateSpeed:
 		glo rloSpeedCounter
@@ -824,8 +831,9 @@ countdownBeepOut:
 		out 4
 		seq
 countdownBeepStartDone:
-		; Same-size hook: restore a saved road phase only after the final
-		; countdown frame. The normal startRace path remains untouched.
+		; On the final between-road countdown frame, restore the fractional
+		; LEFT-timer phase captured at the finish line.  Other countdown frames
+		; pass straight through the helper to waitVsync.
 		lbr countdownPhaseRestore
 
 countdownToneB4:	.db TONE_B4
@@ -962,9 +970,9 @@ finishRoadPhaseStore:
 		str rDataPointer
 		lbr finishRoadPhaseReturn
 
-; Called only from the existing post-countdown path, after that frame's light
-; drawing and beep work are complete. On the initial start the validity byte is
-; zero, so v1.05's original countdown phase reaches startRace unchanged.
+; Restore the saved LEFT-timer phase on the final countdown transition.  This
+; makes the post-finish +60-second award preserve the exact fractional remainder
+; instead of allowing the between-road countdown to replace it with a new phase.
 countdownPhaseRestore:
 		glo rGlobalState
 		smi 11
@@ -978,6 +986,108 @@ countdownPhaseRestore:
 		plo rLoTimer
 countdownPhaseWait:
 		lbr waitVsync
+
+; -----------------------------------------------------------------------------
+; Race DX live elapsed time
+;
+; State 0 is the only actively racing state.  Six 60 Hz refreshes are exactly
+; one tenth of a second, so the live display only needs a cheap 0..5 frame
+; divider.  The remainder itself is retained, preserving exact frame-level
+; elapsed precision for later result formatting without doing centisecond BCD
+; work on every raster-sensitive racing frame.
+elapsedTimeGate:
+		bz elapsedTimeTick
+		lbr selectGlobalState
+
+elapsedTimeTick:
+		ldi <mElapsedFrac
+		plo rDataPointer
+		ldn rDataPointer
+		adi 1
+		smi 6
+		bdf elapsedCarryTenth
+		adi 6
+		str rDataPointer
+		lbr updateSpeed
+
+elapsedCarryTenth:
+		ldi 0
+		str rDataPointer
+		dec rDataPointer		; blank cell
+		dec rDataPointer		; tenths
+		ldn rDataPointer
+		adi 1
+		smi 10
+		bdf elapsedCarrySeconds
+		adi 10
+		str rDataPointer
+		lbr updateSpeed
+
+elapsedCarrySeconds:
+		ldi 0
+		str rDataPointer
+		dec rDataPointer		; decimal point
+		dec rDataPointer		; seconds ones
+		ldn rDataPointer
+		adi 1
+		smi 10
+		bdf elapsedCarrySecondsMid
+		adi 10
+		str rDataPointer
+		lbr updateSpeed
+
+elapsedCarrySecondsMid:
+		ldi 0
+		str rDataPointer
+		dec rDataPointer
+		ldn rDataPointer
+		adi 1
+		smi 10
+		bdf elapsedCarrySecondsHi
+		adi 10
+		str rDataPointer
+		lbr updateSpeed
+
+elapsedCarrySecondsHi:
+		ldi 0
+		str rDataPointer
+		dec rDataPointer
+		ldn rDataPointer
+		adi 1
+		smi 10
+		bdf elapsedSaturate
+		adi 10
+		str rDataPointer
+		lbr updateSpeed
+
+elapsedSaturate:
+		ldi 9
+		str rDataPointer
+		inc rDataPointer
+		str rDataPointer
+		inc rDataPointer
+		str rDataPointer
+		inc rDataPointer		; decimal point
+		inc rDataPointer		; tenths
+		str rDataPointer
+		lbr updateSpeed
+
+; Initialize only the formatting cells.  Elapsed digits persist across roads.
+initElapsedTop:
+		ldi <mElapsedBlank
+		plo rDataPointer
+		ldi <chr_
+		str rDataPointer
+		ldi <mElapsedDot
+		plo rDataPointer
+		ldi <chrDot
+		str rDataPointer
+		ldi <mTimerLowSpace
+		plo rDataPointer
+		ldi <chr_
+		str rDataPointer
+		dec rDataPointer
+		lbr initTimer
 
 		.org $500
 calcRoadOrShiftHorizon:
@@ -1206,19 +1316,20 @@ shiftRightHorizonLoop:
 shiftHorizonEnd:
 
 incStores:
-		ldi <(mScoreLow+1)
+		; Horizon-shift frames used to repaint the score pair every time.  The
+		; live fractional pair now changes only once per tenth, so skip that
+		; raster work on the other five frames.  Padding keeps drawScore fixed.
+		ldi <mElapsedFrac
 		plo rDataPointer
-		ldx
-incStoresLoop:
-		stxd
-		ldi 1
-		add
-		str rDataPointer
-		smi 10
-		bdf incStoresLoop
+		ldn rDataPointer
+		bnz incStoresNoTimeDraw
+		lbr drawScore
+incStoresNoTimeDraw:
+		lbr waitVsync
+		nop
 		
 drawScore:
-		ldi <(mScoreSpace+4)
+		ldi <mElapsedTenth
 		plo rDataPointer
 		ldi <(digitsPos+4+2)
 		plo r3Buf
@@ -1294,12 +1405,14 @@ notZero:
 		stxd
 
 initTopInfo:
-		ldi <mScoreSpace
-		plo rDataPointer
-		ldi <chr_
-		stxd
-		stxd
-		lbr initTimer
+		lbr initElapsedTop
+		nop
+		nop
+		nop
+		nop
+		nop
+		nop
+		nop
 		nop
 initTopInfoRest:
 		ldi <chr_
@@ -1527,12 +1640,16 @@ btmCar:
 		.db 252, 00001111b,11110000b, 0
 			
 btmTopText:
-		.db 01101100b, 11101110b, 11000000b, 01110101b, 01011100b, 00000110b, 11101110b, 11001110b
-		.db 10001010b, 10001000b, 10100000b, 00100101b, 11010000b, 00001000b, 10001010b, 10101000b
-		.db 01101010b, 11001100b, 10100000b, 00100101b, 01011000b, 00000110b, 10001010b, 10101100b
-		.db 00101100b, 10001000b, 10100000b, 00100101b, 01010000b, 00000010b, 10001010b, 11001000b
-		.db 11001000b, 11101110b, 11000000b, 00100101b, 01011100b, 00001100b, 11101110b, 10101110b
+		; SPEED LEFT  TIME
+		.db 01101100b, 11101110b, 11000000b, 10001110b, 11100111b, 00000000b, 01110101b, 01011110b
+		.db 10001010b, 10001000b, 10100000b, 10001000b, 10000010b, 00000000b, 00100101b, 11011000b
+		.db 01101010b, 11001100b, 10100000b, 10001100b, 11000010b, 00000000b, 00100101b, 01011100b
+		.db 00101100b, 10001000b, 10100000b, 10001000b, 10000010b, 00000000b, 00100101b, 01011000b
+		.db 11001000b, 11101110b, 11000000b, 11101110b, 10000010b, 00000000b, 00100101b, 01011110b
 
+; Decimal-point lookup/glyph use the original six-byte gap before $CA0.
+chrDot:	.db <btmDot
+btmDot:	.db 0,0,0,0,01000100b
 
 		.org $CA0
 ; Add 60 seconds in packed decimal display digits. If an unusually fast road

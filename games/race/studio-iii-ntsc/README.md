@@ -112,10 +112,17 @@ countdown beep is six frames longer than the preceding four beeps. Roadside
 sound bookkeeping runs only on non-road-draw frames so it does not consume the
 raster margin used by the finish-line renderer.
 
-The current timing test is deliberately limited to preserving the existing
-60-frame subsecond phase across road transitions. It does not add result-screen
-or centisecond drawing yet. The original race display, road transition, timer
-seconds, +60-second award, and start sequence remain otherwise unchanged.
+Race DX now uses the former score field as a live elapsed-race clock. During
+active racing it is shown as `SSS.T`; six 60 Hz refreshes advance the displayed
+tenth, while the retained 0..5 frame remainder preserves exact frame-level
+elapsed precision. The former score-pair repaint is skipped on the five frames
+where the tenth did not change, reducing work on horizon-shift frames.
+
+The remaining-time field still starts at 65 seconds and each completed road
+still awards +60 seconds. At a finish line, the existing subsecond phase of the
+`LEFT` timer is saved and restored on the final between-road countdown frame,
+so the +60-second award retains the fractional time that was actually left
+rather than beginning the next road on the countdown's incidental phase.
 
 ## Status
 
