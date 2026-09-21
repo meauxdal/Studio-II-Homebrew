@@ -45,10 +45,12 @@ _loop:		glo r0
 		plo r0
 		bn1 _loop
 		br _return
-			
+
+
 
 MAX_SEGMENT_Y = 27	;up to 31
-MAX_SPEED = 23 ;230
+MAX_SPEED = 23 ; high two display digits for 235 MPH cap
+MAX_SPEED_ONES = 5
 TIMER_START_LO = 5
 TIMER_START_HI = 6
 START_BEEP_FRAMES = 6
@@ -94,33 +96,221 @@ mPerspectiveY = 53
 ;54-56 used
 mData = 57
 
+ ; RAM+$00..$27 is the live road-curve work area.  Do not place persistent
+; HUD graphics here while a race is active.
+;mTopText remains defined only as terminal scratch; displayRefresh uses ROM.
+mTopText = RAM+0
+
+; Exact cumulative elapsed whole seconds, kept separate from the visible TIME
+; cells so the inter-road lap overlay can reuse those cells without losing state.
+; Tenths come directly from the same R6 phase used by LEFT.
+mElapsedHiddenHi = 40
+mElapsedHiddenMid = 41
+mElapsedHiddenLow = 42
+mRoadStartSeconds = 43
+mRoadStartTenth = 44
+mRoadNumber = 45
+
 mSpeedHi = 58
 mSpeedLo = 60
 mSpeedSpace = 61
-mTimerHiSpace = 62
-mTimerHi = 63
-mTimerLow = 64
-mTimerLowSpace = 65
-; Elapsed race time occupies the former score field.  During racing it is
-; shown as SSS.T plus one blank cell.  The 0..5 sub-tenth remainder retains the
-; exact 60 Hz frame fraction even though only tenths are drawn live.
-mElapsedSecHi = 66
-mElapsedSecMid = 67
-mElapsedSecLow = 68
-mElapsedDot = 69
-mElapsedTenth = 70
-mElapsedBlank = 71
-mElapsedFrac = 72		; exact 0..5 frame remainder within the displayed tenth
+; LEFT display cells: SS.T
+mLeftHi = 62
+mLeftLow = 63
+mLeftDot = 64
+mLeftTenth = 65
+; TIME display cells: _SSS.T
+mElapsedBlank = 66
+mElapsedSecHi = 67
+mElapsedSecMid = 68
+mElapsedSecLow = 69
+mElapsedDot = 70
+mElapsedTenth = 71
+mElapsedFrac = 72		; exact 0..5 active-frame remainder within the displayed tenth
 
-; Saved subsecond phase for a completed road. R6.0 remains the live timer
-; phase while driving; this snapshot exists only to carry that phase across
-; the between-road countdown without consuming race time.
+; Saved subsecond phase for a completed road.
 mRacePhase = 74
 mRacePhaseValid = 75
+; Hidden whole-second LEFT state.
+mTimerSecHi = 76
+mTimerSecLow = 77
+; Dedicated completed-lap storage.  Keep lap results completely separate from
+; the live TIME display.
+mLapTens = 78
+mLapOnes = 79
+mLapTenth = 80
 
 mBtmDigits = RAM+88
 mBtmHorizonStart = RAM+128
 mBtmHorizonEnd = RAM+255
+
+		.org $30
+; Active light-frame LEFT formatter. R6.0 has already been normalized by
+; updateTimerBtm, so the hidden seconds and phase describe the same instant.
+formatLeftHud:
+		glo rLoTimer
+		ani $3F
+		adi <phaseTenthTable
+		plo r5Buf
+		ldi >phaseTenthTable
+		phi r5Buf
+		ldn r5Buf			; displayed elapsed tenth q
+		plo r5Buf
+		ldi <mLeftTenth
+		plo rDataPointer
+		glo r5Buf
+		bz formatLeftWhole
+		sdi 10
+		str rDataPointer
+		ldi <mTimerSecLow
+		plo rDataPointer
+		ldn rDataPointer
+		bz formatLeftBorrow
+		smi 1
+		plo r4buf
+		dec rDataPointer
+		ldn rDataPointer
+		phi r4buf
+		br formatLeftStore
+formatLeftBorrow:
+		dec rDataPointer
+		ldn rDataPointer
+		bz formatLeftWhole
+		smi 1
+		phi r4buf
+		ldi 9
+		plo r4buf
+		br formatLeftStore
+formatLeftWhole:
+		ldi 0
+		str rDataPointer
+		ldi <mTimerSecHi
+		plo rDataPointer
+		; Keep the packed formatter at the same size.  Whole-tenth handling,
+		; including the exact 00.0 terminal check, lives in the safe $04xx gap.
+		lbr formatLeftWholeSafe
+		nop
+formatLeftStore:
+		ldi <mLeftHi
+		plo rDataPointer
+		ghi r4buf
+		str rDataPointer
+		inc rDataPointer
+		glo r4buf
+		str rDataPointer
+		lbr formatLeftHudReturn
+
+; One exact elapsed whole-second tick.  This replaces the former dead low-RAM
+; legend copier and runs only when LEFT crosses a whole-second boundary.
+incrementElapsedSecond:
+		ldi <mElapsedHiddenLow
+		plo rDataPointer
+incrementElapsedDigit:
+		ldn rDataPointer
+		adi 1
+		smi 10
+		bnf incrementElapsedStore
+		ldi 0
+		str rDataPointer
+		dec rDataPointer
+		br incrementElapsedDigit
+incrementElapsedStore:
+		adi 10
+		str rDataPointer
+		lbr decrementLeftReturn
+
+		.org $8C
+; Hidden whole-second countdown. The display cells are independent.
+decrementLeftSecond:
+		ldi <mTimerSecLow
+		plo rDataPointer
+		ldn rDataPointer
+		bnz decrementLeftLow
+		dec rDataPointer
+		ldn rDataPointer
+		bnz decrementLeftBorrow
+		ldi 255
+		plo rGlobalState
+		lbr setGameOverHud
+decrementLeftBorrow:
+		smi 1
+		str rDataPointer
+		inc rDataPointer
+		ldi 9
+		str rDataPointer
+		lbr incrementElapsedSecond
+decrementLeftLow:
+		smi 1
+		str rDataPointer
+		lbr incrementElapsedSecond
+
+; Initial numeric row and exact timer/budget state. Subsequent road transitions
+; preserve the lap row written by finishLapCapture instead of calling this.
+initHudData:
+		ldi <mTimerSecHi
+		plo rDataPointer
+		ldi TIMER_START_HI
+		str rDataPointer
+		inc rDataPointer
+		ldi TIMER_START_LO
+		str rDataPointer
+		ldi <mElapsedHiddenHi
+		plo rDataPointer
+		ldi 0
+		str rDataPointer
+		inc rDataPointer
+		str rDataPointer
+		inc rDataPointer
+		str rDataPointer
+		ldi <mRoadNumber
+		plo rDataPointer
+		ldi 1
+		str rDataPointer
+
+		ldi >initialHudChars
+		phi r4buf
+		ldi <initialHudChars
+		plo r4buf
+		ldi <mSpeedHi
+		plo rDataPointer
+		ldi 14
+		plo r5Buf
+initHudDataLoop:
+		lda r4buf
+		str rDataPointer
+		inc rDataPointer
+		dec r5Buf
+		glo r5Buf
+		bnz initHudDataLoop
+		lbr waitVsync
+initialHudChars:
+		.db 0,0,0,<chr_, 6,5,<chrDot,0, <chr_,0,0,0,<chrDot,0
+
+; Inter-road lap result.  The completed lap never aliases TIME.  A small
+; helper writes NN.N into the existing LEFT numeric cells during the countdown;
+; active-race HUD updates naturally reclaim those four cells afterward.
+showLapHud:
+		lbr showLapHudSafe
+		nop
+		nop
+		nop
+
+; Exact 235 MPH acceleration ceiling.  rHiSpeed contains the first two
+; decimal speed digits (23 at 230-239 MPH), while R2 already points at the
+; ones digit.  Keep 231-235 reachable, but block the increment at 235.
+; This helper occupies the final 16 bytes below $0100 so the live $0100
+; gameplay block does not move.
+		.org $F0
+speedCap235:
+		ghi rHiSpeed
+		smi MAX_SPEED
+		bnf speedCap235Allow
+		ldn rDataPointer
+		smi MAX_SPEED_ONES
+		bnf speedCap235Allow
+		lbr changeSpeedEnd
+speedCap235Allow:
+		lbr incSpeedAllowed
 
 	.org 100h
 start:
@@ -148,6 +338,8 @@ clearRamLoop:
 		glo rDataPointer
 		bnz clearRamLoop
 
+		lbr initHudTextReturn
+initHudTextReturn:
 		phi rLoTimer		; = 0
 		plo rBeepTimer		; no countdown beep active
 
@@ -241,9 +433,12 @@ decSpeedNext:
 		br decSpeedNext
 
 incSpeed:
-		ghi rHiSpeed
-		smi MAX_SPEED
-		bdf changeSpeedEnd
+		; Keep this five-byte slot fixed so all following raster-sensitive code
+		; retains its established address.  The 235 comparison lives below $0100.
+		lbr speedCap235
+		nop
+		nop
+incSpeedAllowed:
 		ldi 1
 		skp
 incSpeedLoop:
@@ -261,33 +456,15 @@ updateTimerBtm:
 		glo rLoTimer
 		ani 0x0F
 		plo rLoTimer
-		ldi mTimerLow	
-		plo rDataPointer
-		ldn rDataPointer
-		bnz updateTimerBtmDec
-		ldi 9
-		stxd
-		ldn rDataPointer
-		bnz updateTimerBtmDec
-		ldi 255
-		plo rGlobalState	;game over
-		inc rDataPointer
-		inc rDataPointer
-		ldi <chrR
-		stxd
-		ldi <chrE
-		stxd
-		ldi <chrV
-		stxd
-		ldi 1				;after -1 is chr0
-updateTimerBtmDec:
-		smi 1
-		stxd
+		lbr decrementLeftSecond
+decrementLeftReturn:
 updateTimerBtmEnd:
 
 drawSpeedAndTimer:
-		ldi <mSpeedHi
-		plo rDataPointer
+		; Fixed-size hook: save the normalized LEFT phase in the existing
+		; non-raster gap, then resume the original HUD setup here.
+		lbr elapsedBaselineAndDrawSpeed
+drawSpeedAndTimerResume:
 		ldi <digitsPos
 		plo r3Buf
 
@@ -331,6 +508,55 @@ drawTwoCharsLoop:
 
 		lbr waitVsync
 
+; Light-frame/sample hooks live in the existing gap before drawRoad so no
+; established gameplay or graphics block moves.
+elapsedBaselineAndDrawSpeed:
+		glo rLoTimer
+		phi rGlobalState
+		glo rGlobalState
+		bnz formatLeftHudReturn
+		lbr syncActiveHud
+formatLeftHudReturn:
+		ldi <mSpeedHi
+		plo rDataPointer
+		br drawSpeedAndTimerResume
+
+startRacePhaseCapture:
+		glo rLoTimer
+		phi rGlobalState
+		br drawRoad
+
+; Runs only on the final countdown frame. Restore the saved road-finish phase
+; when present, then snapshot the exact LEFT start state for the next lap.
+countdownPhaseExternal:
+		glo rGlobalState
+		smi 11
+		bnz countdownPhaseExternalWait
+		ldi <mRacePhaseValid
+		plo rDataPointer
+		ldn rDataPointer
+		bz countdownPhaseExternalCapture
+		dec rDataPointer
+		ldn rDataPointer
+		plo rLoTimer
+		inc rDataPointer
+		ldi 0
+		str rDataPointer
+countdownPhaseExternalCapture:
+		lbr captureRoadStartSeconds
+countdownPhaseExternalWait:
+		lbr waitVsync
+
+		.org $1EB
+finishLapNormalizeBoundary:
+		ldn rDataPointer
+		ani $3F
+		str rDataPointer
+		ldi <mTimerSecLow
+		plo rDataPointer
+		ldn rDataPointer
+		lbnz finishLapNormalizeLow
+		lbr finishLapNormalizeBorrow
 
 		.org $200-7
 drawRoad:
@@ -724,7 +950,7 @@ main:
 
 checkGlobalState:
 		glo rGlobalState
-		lbr elapsedTimeGate
+		lbnz selectGlobalState
 
 updateSpeed:
 		glo rloSpeedCounter
@@ -743,7 +969,10 @@ incSpeedCounter:
 		inc rloSpeedCounter				;rHiSpeed may be corrupted but it will be set in scanAccelKey
 		
 lessCalledAtHigherSpeed:
-		lbr scanAccelKey
+		; This is a deliberately light frame: no road or horizon rendering follows.
+		; Batch elapsed-time accounting here so heavy raster frames retain the
+		; original v1.05 instruction budget.
+		lbr elapsedLightTick
 
 moreCalledAtHigherSpeed:
 		ghi rHiCounter
@@ -788,6 +1017,17 @@ scanTurnKeyEnd:
 		lbr calcRoadOrShiftHorizon
 
 
+; Completed-road label alternates with the two actual road layouts.  This
+; occupies the untouched ten-byte $03A6-$03AF gap and then falls into +60.
+		.org $3A6
+advanceRoadNumber:
+		ldi <mRoadNumber
+		plo rDataPointer
+		ldn rDataPointer
+		xri 3
+		str rDataPointer
+		lbr addRoadTime
+
 		.org $3B0
 ; Countdown-light sound. Values target the nominal Studio III NTSC clock:
 ; B4 ~= 494.96 Hz, B5 ~= 989.92 Hz, with an exact 2:1 divider ratio.
@@ -799,7 +1039,11 @@ countdownBeepTick:
 		bnz countdownBeepTickDone
 		req
 countdownBeepTickDone:
-		lbr drawSpeedAndTimer
+		; Freeze both LEFT and TIME throughout the inter-road countdown.  Their
+		; RAM cells already contain the valid result display; touching the HUD here
+		; only spends raster time and can corrupt the packed digits.  Active-race
+		; rendering reclaims both fields after the next road actually starts.
+		lbr waitVsync
 
 countdownBeepStart:
 		; State 5..9 are the five actual light-illumination transitions.
@@ -968,126 +1212,169 @@ finishRoadPhaseStore:
 		inc rDataPointer
 		ldi 1
 		str rDataPointer
-		lbr finishRoadPhaseReturn
+		lbr finishLapCapture
 
 ; Restore the saved LEFT-timer phase on the final countdown transition.  This
 ; makes the post-finish +60-second award preserve the exact fractional remainder
 ; instead of allowing the between-road countdown to replace it with a new phase.
 countdownPhaseRestore:
-		glo rGlobalState
-		smi 11
-		bnz countdownPhaseWait
-		ldi <mRacePhaseValid
+		lbr countdownPhaseExternal
+; Unreachable from countdownPhaseRestore itself; finishRoadPhaseSave enters here.
+; Keep elapsedLightTick fixed at $0461.
+finishLapCapture:
+		ldi <mRacePhase
 		plo rDataPointer
 		ldn rDataPointer
-		bz countdownPhaseWait
-		dec rDataPointer
-		ldn rDataPointer
-		plo rLoTimer
-countdownPhaseWait:
-		lbr waitVsync
+		ani $C0
+		lbnz finishLapNormalizeBoundary
+		lbr finishLapCore
+		nop
+		nop
 
 ; -----------------------------------------------------------------------------
-; Race DX live elapsed time
+; Race DX exact light-frame HUD sync
 ;
-; State 0 is the only actively racing state.  Six 60 Hz refreshes are exactly
-; one tenth of a second, so the live display only needs a cheap 0..5 frame
-; divider.  The remainder itself is retained, preserving exact frame-level
-; elapsed precision for later result formatting without doing centisecond BCD
-; work on every raster-sensitive racing frame.
-elapsedTimeGate:
-		bz elapsedTimeTick
-		lbr selectGlobalState
+; Whole elapsed seconds are advanced exactly when LEFT crosses a whole-second
+; boundary.  Light frames therefore only copy three BCD digits and derive the
+; shared tenth from R6.  This keeps TIME exact without the long per-frame BCD
+; subtraction that could overrun the first active race frames.
+elapsedLightTick:
+		lbr scanAccelKey
 
-elapsedTimeTick:
-		ldi <mElapsedFrac
+setGameOverHud:
+		lbr syncActiveHud
+syncActiveHud:
+		ldi >RAM
+		phi r4buf
+		ldi <mElapsedHiddenHi
+		plo r4buf
+		ldi <mElapsedSecHi
 		plo rDataPointer
-		ldn rDataPointer
-		adi 1
-		smi 6
-		bdf elapsedCarryTenth
-		adi 6
-		str rDataPointer
-		lbr updateSpeed
-
-elapsedCarryTenth:
-		ldi 0
-		str rDataPointer
-		dec rDataPointer		; blank cell
-		dec rDataPointer		; tenths
-		ldn rDataPointer
-		adi 1
-		smi 10
-		bdf elapsedCarrySeconds
-		adi 10
-		str rDataPointer
-		lbr updateSpeed
-
-elapsedCarrySeconds:
-		ldi 0
-		str rDataPointer
-		dec rDataPointer		; decimal point
-		dec rDataPointer		; seconds ones
-		ldn rDataPointer
-		adi 1
-		smi 10
-		bdf elapsedCarrySecondsMid
-		adi 10
-		str rDataPointer
-		lbr updateSpeed
-
-elapsedCarrySecondsMid:
-		ldi 0
-		str rDataPointer
-		dec rDataPointer
-		ldn rDataPointer
-		adi 1
-		smi 10
-		bdf elapsedCarrySecondsHi
-		adi 10
-		str rDataPointer
-		lbr updateSpeed
-
-elapsedCarrySecondsHi:
-		ldi 0
-		str rDataPointer
-		dec rDataPointer
-		ldn rDataPointer
-		adi 1
-		smi 10
-		bdf elapsedSaturate
-		adi 10
-		str rDataPointer
-		lbr updateSpeed
-
-elapsedSaturate:
-		ldi 9
+		lda r4buf
 		str rDataPointer
 		inc rDataPointer
+		lda r4buf
 		str rDataPointer
 		inc rDataPointer
+		ldn r4buf
 		str rDataPointer
-		inc rDataPointer		; decimal point
-		inc rDataPointer		; tenths
-		str rDataPointer
-		lbr updateSpeed
 
-; Initialize only the formatting cells.  Elapsed digits persist across roads.
-initElapsedTop:
-		ldi <mElapsedBlank
+		; Shared tenth phase. Preserve the looked-up digit before loading the
+		; destination address; the pass-5 code accidentally stored that address.
+		glo rLoTimer
+		ani $3F
+		adi <phaseTenthTable
+		plo r5Buf
+		ldi >phaseTenthTable
+		phi r5Buf
+		ldn r5Buf
+		plo r5Buf
+		ldi <mElapsedTenth
 		plo rDataPointer
-		ldi <chr_
+		glo r5Buf
 		str rDataPointer
-		ldi <mElapsedDot
+		glo rGlobalState
+		smi 255
+		lbz setGameOverLabels
+		lbr formatLeftHud
+
+; Stage-style race reset.  Keep this outside the $0600 state block so its
+; established raster-sensitive labels do not move.
+resetStageState:
+		ldi 0
+		phi rHiCarX
+		plo rLoWheel
+		plo rloSpeedCounter
+		phi rHiSpeed
+		ldi <mSpeedLo
 		plo rDataPointer
+		ldi 0
+		stxd
+		stxd
+		str rDataPointer
+		lbr loadHorizon
+
+; TIME has already been synchronized above.  Replace LEFT's numeric field by
+; OVER and patch only the two packed bytes occupied by LEFT in each legend row.
+; displayRefresh keeps scanning the same RAM addresses and therefore gains no
+; raster-path work at GAME OVER.
+setGameOverLabels:
+		; R2 still points at mElapsedTenth from syncActiveHud.  Canonicalize the
+		; terminal result to the exact awarded budget (185.0, 245.0, ...).
+		ldi 0
+		str rDataPointer
+		ldi <mLeftTenth
+		plo rDataPointer
+		sex rDataPointer
+		ldi <chrR
+		stxd
+		ldi <chrE
+		stxd
+		ldi <chrV
+		stxd
+		ldi <chr0
+		str rDataPointer
+		lbr formatLeftHudReturn
+
+; Whole-second LEFT formatting is deliberately outside the packed $0030 block.
+; The hidden elapsed counter has already advanced when LEFT reaches zero, so the
+; first true 00.0 display instant can enter GAME OVER directly with exact TIME.
+formatLeftWholeSafe:
+		lda rDataPointer
+		phi r4buf
+		ldn rDataPointer
+		plo r4buf
+		bnz formatLeftWholeStore
+		ghi r4buf
+		bnz formatLeftWholeStore
+		ldi 255
+		plo rGlobalState
+		lbr setGameOverHud
+formatLeftWholeStore:
+		lbr formatLeftStore
+
+; Result-only HUD update.  First freeze TIME from the exact hidden elapsed
+; counter and captured finish tenth, then place NN.N in LEFT.  This code runs
+; only after the road is finished; it never executes on a live race frame.
+showLapHudSafe:
+		ldi >RAM
+		phi r4buf
+		ldi <mElapsedHiddenHi
+		plo r4buf
+		ldi <mElapsedSecHi
+		plo rDataPointer
+		lda r4buf
+		str rDataPointer
+		inc rDataPointer
+		lda r4buf
+		str rDataPointer
+		inc rDataPointer
+		ldn r4buf
+		str rDataPointer
+
+		ldi <mLapTenth
+		plo r4buf
+		ldi <mElapsedTenth
+		plo rDataPointer
+		ldn r4buf
+		str rDataPointer
+
+		ldi <mLapTens
+		plo r4buf
+		ldi <mLeftHi
+		plo rDataPointer
+		lda r4buf
+		str rDataPointer
+		inc rDataPointer
+		lda r4buf
+		str rDataPointer
+		inc rDataPointer
 		ldi <chrDot
 		str rDataPointer
-		ldi <mTimerLowSpace
-		plo rDataPointer
-		ldi <chr_
+		inc rDataPointer
+		ldn r4buf
 		str rDataPointer
-		dec rDataPointer
-		lbr initTimer
+		lbr finishRoadPhaseReturn
 
 		.org $500
 calcRoadOrShiftHorizon:
@@ -1316,26 +1603,44 @@ shiftRightHorizonLoop:
 shiftHorizonEnd:
 
 incStores:
-		; Horizon-shift frames used to repaint the score pair every time.  The
-		; live fractional pair now changes only once per tenth, so skip that
-		; raster work on the other five frames.  Padding keeps drawScore fixed.
-		ldi <mElapsedFrac
-		plo rDataPointer
-		ldn rDataPointer
-		bnz incStoresNoTimeDraw
-		lbr drawScore
-incStoresNoTimeDraw:
+		; TIME is now redrawn only on scanAccel frames with the rest of the HUD.
+		; Do no string work at all after a horizon shift: this restores margin on
+		; the intermittent left-turn failure path.  Padding keeps drawScore fixed.
 		lbr waitVsync
 		nop
+		nop
+		nop
+		nop
+		nop
+		nop
+		nop
+		nop
+		nop
+		nop
 		
-drawScore:
-		ldi <mElapsedTenth
+ ; This slot used to be drawScore.  It now holds countdown-only road-start
+; timing capture; live HUD work remains off horizon frames.
+initElapsedTop:
+captureRoadStartSeconds:
+		ldi <mTimerSecHi
 		plo rDataPointer
-		ldi <(digitsPos+4+2)
-		plo r3Buf
-		lbr drawString
-
-
+		sex rDataPointer
+		ldn rDataPointer
+		shl
+		shl
+		shl
+		add
+		add
+		inc rDataPointer
+		add				; D = decimal seconds as binary 0..99
+		ldi <mRoadStartSeconds
+		plo rDataPointer
+		str rDataPointer
+		lbr captureRoadStartTenth
+finishLapNormalizeLow:
+		smi 1
+		str rDataPointer
+		lbr finishNormalizeElapsed
 
 		.org $600
 selectGlobalState:
@@ -1359,12 +1664,12 @@ prepareLevelStep:
 		adi 1
 		lbz drawRoad 			; if state = 2
 
-		;put zeros
-		ldi 0
-		phi rHiCarX
-		plo rLoWheel
-		plo rloSpeedCounter
-		phi rHiSpeed
+		; Stage-style transition: reset steering/speed and clear all three
+		; displayed speed digits.  The helper returns by branching to loadHorizon.
+		lbr resetStageState
+		nop
+		nop
+		nop
 
 loadHorizon:
 		lda rRoadSectorAdr
@@ -1405,32 +1710,30 @@ notZero:
 		stxd
 
 initTopInfo:
-		lbr initElapsedTop
-		nop
-		nop
-		nop
-		nop
-		nop
-		nop
-		nop
+		ldi <mRacePhaseValid
+		plo rDataPointer
+		ldn rDataPointer
+		lbnz waitVsync
+		lbr initHudData
 		nop
 initTopInfoRest:
-		ldi <chr_
-		stxd
-		stxd
-		ldi <chr0
-		stxd
-		stxd
-		stxd
-		;todo: need more cicles
-		lbr waitVsync
+finishLapNormalizeBorrow:
+		dec rDataPointer
+		ldn rDataPointer
+		smi 1
+		str rDataPointer
+		inc rDataPointer
+		ldi 9
+		str rDataPointer
+		lbr finishNormalizeElapsed
 
 		
 startRace:
 		;put zeros
 		plo rGlobalState
 		phi rHiCounter
-		lbr drawRoad
+		; Fixed-size hook; capture the active-race phase outside this timed block.
+		lbr startRacePhaseCapture
 
 
 rRowAdr = r5Buf
@@ -1523,7 +1826,7 @@ finishRoadPhaseReturn:
 		ldi <roadData1
 		plo rRoadSectorAdr
 finishRoadNext:
-		lbr addRoadTime
+		lbr advanceRoadNumber
 finishRoadResume:
 		ldi 1
 		plo rGlobalState
@@ -1607,10 +1910,10 @@ btm7:	.db 11101110b
 		.db 01000100b
 		.db 01000100b
 
-btmR:	.db 11001100b
+btmR:	.db 11101100b
 		.db 10101010b
-		.db 11001100b
-btmV:	.db 10101010b
+		.db 11101100b
+btmV:	.db 11001010b
 		.db 10101010b
 		.db 10101010b
 		.db 10101010b
@@ -1652,55 +1955,62 @@ chrDot:	.db <btmDot
 btmDot:	.db 0,0,0,0,01000100b
 
 		.org $CA0
-; Add 60 seconds in packed decimal display digits. If an unusually fast road
-; would exceed the two-digit display, hold at 99 rather than wrapping.
+; Add 60 seconds to LEFT without touching its fractional R6 phase.  TIME is
+; independent cumulative elapsed state, so a checkpoint award never modifies it.
 addRoadTime:
-		ldi <mTimerLow
+		; Preserve the
+		; original two-digit saturation behaviour for an exceptionally fast road.
+		ldi <mTimerSecHi
 		plo rDataPointer
 		ldn rDataPointer
-		adi 0
-		smi 10
-		bnf addRoadNoOnesCarry
+		smi 4
+		bdf addRoadCap99
+		adi 10
 		str rDataPointer
-		ldi 6			; +5 tens plus carry
-		br addRoadTens
-addRoadNoOnesCarry:
-		adi 10			; undo trial subtraction
-		str rDataPointer
-		ldi 6
-addRoadTens:
-		dec rDataPointer
-		sex rDataPointer
-		add
-		smi 10
-		bnf addRoadStoreTens
+		lbr finishRoadResume
+addRoadCap99:
 		ldi 9
 		str rDataPointer
 		inc rDataPointer
 		str rDataPointer
 		lbr finishRoadResume
-addRoadStoreTens:
-		adi 10
-		str rDataPointer
-		lbr finishRoadResume
 
 initTimer:
+captureRoadStartTenth:
+		glo rLoTimer
+		ani $3F
+		adi <phaseTenthTable
+		plo r5Buf
+		ldi >phaseTenthTable
+		phi r5Buf
+		ldn r5Buf
+		inc rDataPointer		; mRoadStartSeconds -> mRoadStartTenth
+		str rDataPointer
+		; Do not refresh the HUD on the final countdown/light-clear frame.
+		; The ordinary active-race HUD path updates LEFT/TIME on the next frame.
+		; Keeping this transition to capture-only avoids the visible start flash.
+		lbr waitVsync
+
+; Finish-line boundary normalization has consumed one whole second from LEFT.
+; Keep the hidden accounting invariant intact by crediting that same second to
+; TIME before calculating/storing the completed lap.  This is the path that
+; could otherwise make TIME+LEFT one second short after a phase-boundary finish.
+finishNormalizeElapsed:
+		ldi <mElapsedHiddenLow
+		plo rDataPointer
+finishNormalizeElapsedDigit:
 		ldn rDataPointer
-		bnz keepTimerLow
+		adi 1
+		smi 10
+		bnf finishNormalizeElapsedStore
+		ldi 0
+		str rDataPointer
 		dec rDataPointer
-		ldn rDataPointer
-		bnz keepTimerHigh
-		inc rDataPointer
-		ldi <chr0+<TIMER_START_LO
-		stxd
-		ldi <chr0+<TIMER_START_HI
-		stxd
-		lbr initTopInfoRest
-keepTimerLow:
-		dec rDataPointer
-keepTimerHigh:
-		dec rDataPointer
-		lbr initTopInfoRest
+		br finishNormalizeElapsedDigit
+finishNormalizeElapsedStore:
+		adi 10
+		str rDataPointer
+		lbr finishLapCore
 
 		.org $CDF
 roadsideBeepTick:
@@ -1754,6 +2064,10 @@ finishRoad2:
 		.db 0, 0
 roadDataEnd:
 
+		.org $DF4
+gameLabel:
+		.db $66,$9E,$8A,$F8,$AE,$9C,$AA,$98,$6A,$9E
+
 		.org $E00
 btmFudji:
 		.db 0x04, 0x10, 0x34, 0x44, 0x23, 0x48, 0x02, 0x41
@@ -1786,6 +2100,13 @@ btmMountains:
 		.db 0x40,0x01,0x1E,0x00,0x04
 		.db 0x80,0x00,0x05
 
+
+		.org $EC0
+phaseTenthTable:
+		.db 0,0,0,0,0,0,0,1,1,1,1,1,1,2,2,2
+		.db 2,2,2,2,3,3,3,3,3,3,4,4,4,4,4,4
+		.db 5,5,5,5,5,5,5,6,6,6,6,6,6,7,7,7
+		.db 7,7,7,7,8,8,8,8,8,8,9,9,9,9,9,9
 
 
 		.org $F00
@@ -1859,6 +2180,102 @@ btmCaption:
 		.db 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00
 btmCaptionEnd:
 		.db 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+
+		.org $F9D
+; Core finish-line lap calculation.  Phase normalization is performed in the
+; small fixed-address helpers before entering here.
+finishLapCore:
+		; qFinish (0..9) from the canonical finish phase.
+		ldi <mRacePhase
+		plo rDataPointer
+		ldn rDataPointer
+		ani $3F
+		adi <phaseTenthTable
+		plo r5Buf
+		ldi >phaseTenthTable
+		phi r5Buf
+		ldn r5Buf
+		phi r5Buf
+		ldi <mLapTenth
+		plo rDataPointer
+		str rDataPointer
+
+		; Current hidden LEFT seconds, BCD -> binary 0..99, in mLapOnes temp.
+		ldi <mTimerSecHi
+		plo rDataPointer
+		sex rDataPointer
+		ldn rDataPointer
+		shl
+		shl
+		shl
+		add
+		add
+		inc rDataPointer
+		add
+		ldi <mLapOnes
+		plo rDataPointer
+		str rDataPointer
+
+		; whole = roadStartSeconds - currentSeconds
+		ldi >RAM
+		phi r4buf
+		ldi <mRoadStartSeconds
+		plo r4buf
+		sex rDataPointer
+		ldn r4buf
+		sm
+		plo r4buf
+
+		; tenth = qFinish - qStart.  Borrow one whole second when negative.
+		ldi <mRoadStartTenth
+		plo rDataPointer
+		sex rDataPointer
+		ghi r5Buf
+		sm
+		bdf finishLapTenthReady
+		adi 10
+		phi r5Buf
+		glo r4buf
+		smi 1
+		plo r4buf
+		br finishLapSplit
+finishLapTenthReady:
+		phi r5Buf
+
+finishLapSplit:
+		; Preserve the completed road number in R4.1; R2 still points at
+		; mRoadStartTenth, so the adjacent road-number cell costs only 3 bytes.
+		inc rDataPointer
+		ldn rDataPointer
+		phi r4buf
+
+		; Binary whole seconds -> decimal tens/ones.
+		ldi 0
+		phi rGlobalState
+finishLapDiv10:
+		glo r4buf
+		smi 10
+		bnf finishLapDivDone
+		plo r4buf
+		ghi rGlobalState
+		adi 1
+		phi rGlobalState
+		br finishLapDiv10
+finishLapDivDone:
+		adi 10
+		ldi <mLapOnes
+		plo rDataPointer
+		str rDataPointer
+		dec rDataPointer
+		ghi rGlobalState
+		str rDataPointer
+		inc rDataPointer
+		inc rDataPointer
+		inc rDataPointer
+		ghi r5Buf
+		str rDataPointer
+		lbr showLapHud
+
 		.org 0xfff
 		.db 0xff
 		.end

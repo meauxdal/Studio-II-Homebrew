@@ -62,7 +62,8 @@
 002B  A0                		plo r0
 002C  3C 21             		bn1 _loop
 002E  30 12             		br _return
-                        			
+
+
 
       = 001B            MAX_SEGMENT_Y = 27	;up to 31
       = 0017            MAX_SPEED = 23 ;230
@@ -111,33 +112,206 @@
                         ;54-56 used
       = 0039            mData = 57
 
+                         ; RAM+$00..$27 is the live road-curve work area.  Do not place persistent
+                        ; HUD graphics here while a race is active.
+                        ;mTopText remains defined only as terminal scratch; displayRefresh uses ROM.
+      = 0800            mTopText = RAM+0
+
+                        ; Exact cumulative elapsed whole seconds, kept separate from the visible TIME
+                        ; cells so the inter-road lap overlay can reuse those cells without losing state.
+                        ; Tenths come directly from the same R6 phase used by LEFT.
+      = 0028            mElapsedHiddenHi = 40
+      = 0029            mElapsedHiddenMid = 41
+      = 002A            mElapsedHiddenLow = 42
+      = 002B            mRoadStartSeconds = 43
+      = 002C            mRoadStartTenth = 44
+      = 002D            mRoadNumber = 45
+
       = 003A            mSpeedHi = 58
       = 003C            mSpeedLo = 60
       = 003D            mSpeedSpace = 61
-      = 003E            mTimerHiSpace = 62
-      = 003F            mTimerHi = 63
-      = 0040            mTimerLow = 64
-      = 0041            mTimerLowSpace = 65
-                        ; Elapsed race time occupies the former score field.  During racing it is
-                        ; shown as SSS.T plus one blank cell.  The 0..5 sub-tenth remainder retains the
-                        ; exact 60 Hz frame fraction even though only tenths are drawn live.
-      = 0042            mElapsedSecHi = 66
-      = 0043            mElapsedSecMid = 67
-      = 0044            mElapsedSecLow = 68
-      = 0045            mElapsedDot = 69
-      = 0046            mElapsedTenth = 70
-      = 0047            mElapsedBlank = 71
-      = 0048            mElapsedFrac = 72		; exact 0..5 frame remainder within the displayed tenth
+                        ; LEFT display cells: SS.T
+      = 003E            mLeftHi = 62
+      = 003F            mLeftLow = 63
+      = 0040            mLeftDot = 64
+      = 0041            mLeftTenth = 65
+                        ; TIME display cells: _SSS.T
+      = 0042            mElapsedBlank = 66
+      = 0043            mElapsedSecHi = 67
+      = 0044            mElapsedSecMid = 68
+      = 0045            mElapsedSecLow = 69
+      = 0046            mElapsedDot = 70
+      = 0047            mElapsedTenth = 71
+      = 0048            mElapsedFrac = 72		; exact 0..5 active-frame remainder within the displayed tenth
 
-                        ; Saved subsecond phase for a completed road. R6.0 remains the live timer
-                        ; phase while driving; this snapshot exists only to carry that phase across
-                        ; the between-road countdown without consuming race time.
+                        ; Saved subsecond phase for a completed road.
       = 004A            mRacePhase = 74
       = 004B            mRacePhaseValid = 75
+                        ; Hidden whole-second LEFT state.
+      = 004C            mTimerSecHi = 76
+      = 004D            mTimerSecLow = 77
+                        ; Dedicated completed-lap storage.  Keep lap results completely separate from
+                        ; the live TIME display.
+      = 004E            mLapTens = 78
+      = 004F            mLapOnes = 79
+      = 0050            mLapTenth = 80
 
       = 0858            mBtmDigits = RAM+88
       = 0880            mBtmHorizonStart = RAM+128
       = 08FF            mBtmHorizonEnd = RAM+255
+
+0030                    		.org $30
+                        ; Active light-frame LEFT formatter. R6.0 has already been normalized by
+                        ; updateTimerBtm, so the hidden seconds and phase describe the same instant.
+0030                    formatLeftHud:
+0030  86                		glo rLoTimer
+0031  FA 3F             		ani $3F
+0033  FC C0             		adi <phaseTenthTable
+0035  A5                		plo r5Buf
+0036  F8 0E             		ldi >phaseTenthTable
+0038  B5                		phi r5Buf
+0039  05                		ldn r5Buf			; displayed elapsed tenth q
+003A  A5                		plo r5Buf
+003B  F8 41             		ldi <mLeftTenth
+003D  A2                		plo rDataPointer
+003E  85                		glo r5Buf
+003F  32 5E             		bz formatLeftWhole
+0041  FD 0A             		sdi 10
+0043  52                		str rDataPointer
+0044  F8 4D             		ldi <mTimerSecLow
+0046  A2                		plo rDataPointer
+0047  02                		ldn rDataPointer
+0048  32 52             		bz formatLeftBorrow
+004A  FF 01             		smi 1
+004C  A4                		plo r4buf
+004D  22                		dec rDataPointer
+004E  02                		ldn rDataPointer
+004F  B4                		phi r4buf
+0050  30 68             		br formatLeftStore
+0052                    formatLeftBorrow:
+0052  22                		dec rDataPointer
+0053  02                		ldn rDataPointer
+0054  32 5E             		bz formatLeftWhole
+0056  FF 01             		smi 1
+0058  B4                		phi r4buf
+0059  F8 09             		ldi 9
+005B  A4                		plo r4buf
+005C  30 68             		br formatLeftStore
+005E                    formatLeftWhole:
+005E  F8 00             		ldi 0
+0060  52                		str rDataPointer
+0061  F8 4C             		ldi <mTimerSecHi
+0063  A2                		plo rDataPointer
+                        		; Keep the packed formatter at the same size.  Whole-tenth handling,
+                        		; including the exact 00.0 terminal check, lives in the safe $04xx gap.
+0064  C0 04B8           		lbr formatLeftWholeSafe
+0067  C4                		nop
+0068                    formatLeftStore:
+0068  F8 3E             		ldi <mLeftHi
+006A  A2                		plo rDataPointer
+006B  94                		ghi r4buf
+006C  52                		str rDataPointer
+006D  12                		inc rDataPointer
+006E  84                		glo r4buf
+006F  52                		str rDataPointer
+0070  C0 01CA           		lbr formatLeftHudReturn
+
+                        ; One exact elapsed whole-second tick.  This replaces the former dead low-RAM
+                        ; legend copier and runs only when LEFT crosses a whole-second boundary.
+0073                    incrementElapsedSecond:
+0073  F8 2A             		ldi <mElapsedHiddenLow
+0075  A2                		plo rDataPointer
+0076                    incrementElapsedDigit:
+0076  02                		ldn rDataPointer
+0077  FC 01             		adi 1
+0079  FF 0A             		smi 10
+007B  3B 83             		bnf incrementElapsedStore
+007D  F8 00             		ldi 0
+007F  52                		str rDataPointer
+0080  22                		dec rDataPointer
+0081  30 76             		br incrementElapsedDigit
+0083                    incrementElapsedStore:
+0083  FC 0A             		adi 10
+0085  52                		str rDataPointer
+0086  C0 0195           		lbr decrementLeftReturn
+
+008C                    		.org $8C
+                        ; Hidden whole-second countdown. The display cells are independent.
+008C                    decrementLeftSecond:
+008C  F8 4D             		ldi <mTimerSecLow
+008E  A2                		plo rDataPointer
+008F  02                		ldn rDataPointer
+0090  3A A6             		bnz decrementLeftLow
+0092  22                		dec rDataPointer
+0093  02                		ldn rDataPointer
+0094  3A 9C             		bnz decrementLeftBorrow
+0096  F8 FF             		ldi 255
+0098  AF                		plo rGlobalState
+0099  C0 0464           		lbr setGameOverHud
+009C                    decrementLeftBorrow:
+009C  FF 01             		smi 1
+009E  52                		str rDataPointer
+009F  12                		inc rDataPointer
+00A0  F8 09             		ldi 9
+00A2  52                		str rDataPointer
+00A3  C0 0073           		lbr incrementElapsedSecond
+00A6                    decrementLeftLow:
+00A6  FF 01             		smi 1
+00A8  52                		str rDataPointer
+00A9  C0 0073           		lbr incrementElapsedSecond
+
+                        ; Initial numeric row and exact timer/budget state. Subsequent road transitions
+                        ; preserve the lap row written by finishLapCapture instead of calling this.
+00AC                    initHudData:
+00AC  F8 4C             		ldi <mTimerSecHi
+00AE  A2                		plo rDataPointer
+00AF  F8 06             		ldi TIMER_START_HI
+00B1  52                		str rDataPointer
+00B2  12                		inc rDataPointer
+00B3  F8 05             		ldi TIMER_START_LO
+00B5  52                		str rDataPointer
+00B6  F8 28             		ldi <mElapsedHiddenHi
+00B8  A2                		plo rDataPointer
+00B9  F8 00             		ldi 0
+00BB  52                		str rDataPointer
+00BC  12                		inc rDataPointer
+00BD  52                		str rDataPointer
+00BE  12                		inc rDataPointer
+00BF  52                		str rDataPointer
+00C0  F8 2D             		ldi <mRoadNumber
+00C2  A2                		plo rDataPointer
+00C3  F8 01             		ldi 1
+00C5  52                		str rDataPointer
+
+00C6  F8 00             		ldi >initialHudChars
+00C8  B4                		phi r4buf
+00C9  F8 DC             		ldi <initialHudChars
+00CB  A4                		plo r4buf
+00CC  F8 3A             		ldi <mSpeedHi
+00CE  A2                		plo rDataPointer
+00CF  F8 0E             		ldi 14
+00D1  A5                		plo r5Buf
+00D2                    initHudDataLoop:
+00D2  44                		lda r4buf
+00D3  52                		str rDataPointer
+00D4  12                		inc rDataPointer
+00D5  25                		dec r5Buf
+00D6  85                		glo r5Buf
+00D7  3A D2             		bnz initHudDataLoop
+00D9  C0 02F9           		lbr waitVsync
+00DC                    initialHudChars:
+00DC  0000000A 06059A00 		.db 0,0,0,<chr_, 6,5,<chrDot,0, <chr_,0,0,0,<chrDot,0
+00E4  0A000000 9A00
+
+                        ; Inter-road lap result.  The completed lap never aliases TIME.  A small
+                        ; helper writes NN.N into the existing LEFT numeric cells during the countdown;
+                        ; active-race HUD updates naturally reclaim those four cells afterward.
+00EA                    showLapHud:
+00EA  C0 04CA           		lbr showLapHudSafe
+00ED  C4                		nop
+00EE  C4                		nop
+00EF  C4                		nop
+00F0  C4                		nop
 
 0100                    	.org 100h
 0100                    start:
@@ -165,189 +339,222 @@
 0112  82                		glo rDataPointer
 0113  3A 0E             		bnz clearRamLoop
 
-0115  B6                		phi rLoTimer		; = 0
-0116  AD                		plo rBeepTimer		; no countdown beep active
+0115  C0 0118           		lbr initHudTextReturn
+0118                    initHudTextReturn:
+0118  B6                		phi rLoTimer		; = 0
+0119  AD                		plo rBeepTimer		; no countdown beep active
 
 
-0117  F8 0D             		ldi >marksWidthY
-0119  BB                		phi rMarksWidthY
-011A  F8 00             		ldi <marksWidthY
-011C  AB                		plo rMarksWidthY
+011A  F8 0D             		ldi >marksWidthY
+011C  BB                		phi rMarksWidthY
+011D  F8 00             		ldi <marksWidthY
+011F  AB                		plo rMarksWidthY
 
-011D  F8 0D             		ldi >roadData1
-011F  BA                		phi rRoadSectorAdr
-0120  F8 AE             		ldi <roadData1
-0122  AA                		plo rRoadSectorAdr
+0120  F8 0D             		ldi >roadData1
+0122  BA                		phi rRoadSectorAdr
+0123  F8 AE             		ldi <roadData1
+0125  AA                		plo rRoadSectorAdr
 
-0123  F8 01             		ldi 1
-0125  AF                		plo rGlobalState
+0126  F8 01             		ldi 1
+0128  AF                		plo rGlobalState
 
-0126  F8 00             		ldi <menuWaitVsync
-0128  A1                		plo r1
-0129  F8 0F             		ldi >menuWaitVsync
-012B  B1                		phi r1
-012C  D1                		sep r1
+0129  F8 00             		ldi <menuWaitVsync
+012B  A1                		plo r1
+012C  F8 0F             		ldi >menuWaitVsync
+012E  B1                		phi r1
+012F  D1                		sep r1
 
 
-012D                    scanAccelKey:
-012D  E1                		sex r1
-012E  62                		out 2
-012F  05                		.db 5
-0130  F8 00             		ldi 0
-0132  3F 37             		bn4 notBreak
-0134  9C                		ghi rHiSpeed
-0135  F6                		shr
-0136  F6                		shr
-0137                    notBreak:
-0137  FC 01             		adi 1
-0139  A4                		plo r4buf
+0130                    scanAccelKey:
+0130  E1                		sex r1
+0131  62                		out 2
+0132  05                		.db 5
+0133  F8 00             		ldi 0
+0135  3F 3A             		bn4 notBreak
+0137  9C                		ghi rHiSpeed
+0138  F6                		shr
+0139  F6                		shr
+013A                    notBreak:
+013A  FC 01             		adi 1
+013C  A4                		plo r4buf
 
-013A  E1                		sex r1
-013B  62                		out 2
-013C  02                		.db 2
-013D  F8 3A             		ldi mSpeedHi
-013F  A2                		plo rDataPointer
-0140  E2                		sex rDataPointer
+013D  E1                		sex r1
+013E  62                		out 2
+013F  02                		.db 2
+0140  F8 3A             		ldi mSpeedHi
+0142  A2                		plo rDataPointer
+0143  E2                		sex rDataPointer
 
                         		;conver speed 0-200 to 0-20 to save in rSpeed hi
-0141  02                		ldn rDataPointer
-0142  FE                		shl 					;mul 10
-0143  FE                		shl
-0144  FE                		shl
-0145  F4                		add
-0146  F4                		add
-0147  12                		inc rDataPointer
+0144  02                		ldn rDataPointer
+0145  FE                		shl 					;mul 10
+0146  FE                		shl
+0147  FE                		shl
 0148  F4                		add
-0149  BC                		phi rHiSpeed
+0149  F4                		add
 014A  12                		inc rDataPointer
+014B  F4                		add
+014C  BC                		phi rHiSpeed
+014D  12                		inc rDataPointer
 
-014B  FF 0B             		smi MAX_SPEED_ROADSIDE
-014D  3B 65             		bnf noNeedDecSpeed
+014E  FF 0B             		smi MAX_SPEED_ROADSIDE
+0150  3B 68             		bnf noNeedDecSpeed
                         		; if speed more MAX_SPEED_ROADSIDE
-014F  98                		ghi rHiCarX
-0150  FC 37             		adi ROAD_LIMIT
-0152  FC 91             		adi 255-ROAD_LIMIT*2
-0154  3B 5A             		bnf checkTurn			;and check car X pos, if on roadside then dec dpeed
-0156  F8 04             		ldi DEC_SPEED_ROADSIDE
-0158  30 6C             		br decSpeedNext
-015A                    checkTurn:
-015A  02                		ldn rDataPointer
-015B  F6                		shr
-015C  33 65             		bdf noNeedDecSpeed		;only odd speed for speed flicker
-015E  88                		glo rLoWheel
-015F  FC 04             		adi WHEEL_LIMIT_SPEEDUP
-0161  FC F7             		adi 255-WHEEL_LIMIT_SPEEDUP*2
-0163  33 67             		bdf decSpeed 			;check turn adder more half and not inc speed if true
+0152  98                		ghi rHiCarX
+0153  FC 37             		adi ROAD_LIMIT
+0155  FC 91             		adi 255-ROAD_LIMIT*2
+0157  3B 5D             		bnf checkTurn			;and check car X pos, if on roadside then dec dpeed
+0159  F8 04             		ldi DEC_SPEED_ROADSIDE
+015B  30 6F             		br decSpeedNext
+015D                    checkTurn:
+015D  02                		ldn rDataPointer
+015E  F6                		shr
+015F  33 68             		bdf noNeedDecSpeed		;only odd speed for speed flicker
+0161  88                		glo rLoWheel
+0162  FC 04             		adi WHEEL_LIMIT_SPEEDUP
+0164  FC F7             		adi 255-WHEEL_LIMIT_SPEEDUP*2
+0166  33 6A             		bdf decSpeed 			;check turn adder more half and not inc speed if true
 
-0165                    noNeedDecSpeed:
-0165  37 77             		b4 incSpeed
+0168                    noNeedDecSpeed:
+0168  37 7A             		b4 incSpeed
 
-0167                    decSpeed:
-0167  9C                		ghi rHiSpeed
-0168  F4                		add		
-0169  32 86             		bz changeSpeedEnd
+016A                    decSpeed:
+016A  9C                		ghi rHiSpeed
+016B  F4                		add		
+016C  32 89             		bz changeSpeedEnd
 
-016B  84                		glo r4buf
-016C                    decSpeedNext:
-016C  F5                		sd 				;b for -2 for low byte
-016D  52                		str rDataPointer
-016E  33 86             		bdf changeSpeedEnd
-0170  FC 0A             		adi 10
-0172  73                		stxd
-0173  F8 01             		ldi 1
-0175  30 6C             		br decSpeedNext
+016E  84                		glo r4buf
+016F                    decSpeedNext:
+016F  F5                		sd 				;b for -2 for low byte
+0170  52                		str rDataPointer
+0171  33 89             		bdf changeSpeedEnd
+0173  FC 0A             		adi 10
+0175  73                		stxd
+0176  F8 01             		ldi 1
+0178  30 6F             		br decSpeedNext
 
-0177                    incSpeed:
-0177  9C                		ghi rHiSpeed
-0178  FF 17             		smi MAX_SPEED
-017A  33 86             		bdf changeSpeedEnd
-017C  F8 01             		ldi 1
-017E  38                		skp
-017F                    incSpeedLoop:
-017F  73                		stxd
-0180  74                		adc
-0181  52                		str rDataPointer
-0182  FF 0A             		smi 10
-0184  33 7F             		bdf incSpeedLoop
-0186                    changeSpeedEnd:
+017A                    incSpeed:
+017A  9C                		ghi rHiSpeed
+017B  FF 17             		smi MAX_SPEED
+017D  33 89             		bdf changeSpeedEnd
+017F  F8 01             		ldi 1
+0181  38                		skp
+0182                    incSpeedLoop:
+0182  73                		stxd
+0183  74                		adc
+0184  52                		str rDataPointer
+0185  FF 0A             		smi 10
+0187  33 82             		bdf incSpeedLoop
+0189                    changeSpeedEnd:
 
-0186                    updateTimerBtm:
-0186  86                		glo rLoTimer
-0187  FA C0             		ani 0xC0
-0189  32 AE             		bz updateTimerBtmEnd
-018B  86                		glo rLoTimer
-018C  FA 0F             		ani 0x0F
-018E  A6                		plo rLoTimer
-018F  F8 40             		ldi mTimerLow	
-0191  A2                		plo rDataPointer
-0192  02                		ldn rDataPointer
-0193  3A AB             		bnz updateTimerBtmDec
-0195  F8 09             		ldi 9
-0197  73                		stxd
-0198  02                		ldn rDataPointer
-0199  3A AB             		bnz updateTimerBtmDec
-019B  F8 FF             		ldi 255
-019D  AF                		plo rGlobalState	;game over
-019E  12                		inc rDataPointer
-019F  12                		inc rDataPointer
-01A0  F8 0B             		ldi <chrR
-01A2  73                		stxd
-01A3  F8 0C             		ldi <chrE
-01A5  73                		stxd
-01A6  F8 0D             		ldi <chrV
-01A8  73                		stxd
-01A9  F8 01             		ldi 1				;after -1 is chr0
-01AB                    updateTimerBtmDec:
-01AB  FF 01             		smi 1
-01AD  73                		stxd
-01AE                    updateTimerBtmEnd:
+0189                    updateTimerBtm:
+0189  86                		glo rLoTimer
+018A  FA C0             		ani 0xC0
+018C  32 95             		bz updateTimerBtmEnd
+018E  86                		glo rLoTimer
+018F  FA 0F             		ani 0x0F
+0191  A6                		plo rLoTimer
+0192  C0 008C           		lbr decrementLeftSecond
+0195                    decrementLeftReturn:
+0195                    updateTimerBtmEnd:
 
-01AE                    drawSpeedAndTimer:
-01AE  F8 3A             		ldi <mSpeedHi
-01B0  A2                		plo rDataPointer
-01B1  F8 3A             		ldi <digitsPos
-01B3  A3                		plo r3Buf
+0195                    drawSpeedAndTimer:
+                        		; Fixed-size hook: save the normalized LEFT phase in the existing
+                        		; non-raster gap, then resume the original HUD setup here.
+0195  C0 01C2           		lbr elapsedBaselineAndDrawSpeed
+0198                    drawSpeedAndTimerResume:
+0198  F8 3A             		ldi <digitsPos
+019A  A3                		plo r3Buf
 
 
-01B4                    drawString:
+019B                    drawString:
                         ;508; 43
-01B4  F8 0C             		ldi >chr0
-01B6  B5                		phi r5Buf
-01B7  B4                		phi r4buf
-01B8  B3                		phi r3Buf
-01B9  E7                		sex rScreenYAdr
+019B  F8 0C             		ldi >chr0
+019D  B5                		phi r5Buf
+019E  B4                		phi r4buf
+019F  B3                		phi r3Buf
+01A0  E7                		sex rScreenYAdr
 
-01BA  43                		lda r3Buf
-01BB                    drawStringMainLoop:
-01BB  A7                		plo rScreenYAdr
-01BC  42                		lda rDataPointer
-01BD  A5                		plo r5Buf
-01BE  05                		ldn r5Buf
-01BF  A5                		plo r5Buf
-01C0  42                		lda rDataPointer
-01C1  A4                		plo r4buf
-01C2  04                		ldn r4buf
-01C3  A4                		plo r4buf					
+01A1  43                		lda r3Buf
+01A2                    drawStringMainLoop:
+01A2  A7                		plo rScreenYAdr
+01A3  42                		lda rDataPointer
+01A4  A5                		plo r5Buf
+01A5  05                		ldn r5Buf
+01A6  A5                		plo r5Buf
+01A7  42                		lda rDataPointer
+01A8  A4                		plo r4buf
+01A9  04                		ldn r4buf
+01AA  A4                		plo r4buf					
 
-01C4                    drawTwoCharsLoop:
-01C4  45                		lda r5Buf
-01C5  FA F0             		ani $F0
-01C7  57                		str rScreenYAdr
-01C8  44                		lda r4buf
-01C9  FA 0F             		ani $0F
-01CB  F1                		or
-01CC  57                		str rScreenYAdr
-01CD  87                		glo rScreenYAdr
-01CE  FC 08             		adi 8
-01D0  A7                		plo rScreenYAdr
-01D1  FF 80             		smi <mBtmDigits+8*5
-01D3  3B C4             		bnf drawTwoCharsLoop
+01AB                    drawTwoCharsLoop:
+01AB  45                		lda r5Buf
+01AC  FA F0             		ani $F0
+01AE  57                		str rScreenYAdr
+01AF  44                		lda r4buf
+01B0  FA 0F             		ani $0F
+01B2  F1                		or
+01B3  57                		str rScreenYAdr
+01B4  87                		glo rScreenYAdr
+01B5  FC 08             		adi 8
+01B7  A7                		plo rScreenYAdr
+01B8  FF 80             		smi <mBtmDigits+8*5
+01BA  3B AB             		bnf drawTwoCharsLoop
                         		
-01D5  43                		lda r3Buf				;next scr adr
-01D6  3A BB             		bnz drawStringMainLoop
+01BC  43                		lda r3Buf				;next scr adr
+01BD  3A A2             		bnz drawStringMainLoop
 
-01D8  C0 02F9           		lbr waitVsync
+01BF  C0 02F9           		lbr waitVsync
 
+                        ; Light-frame/sample hooks live in the existing gap before drawRoad so no
+                        ; established gameplay or graphics block moves.
+01C2                    elapsedBaselineAndDrawSpeed:
+01C2  86                		glo rLoTimer
+01C3  BF                		phi rGlobalState
+01C4  8F                		glo rGlobalState
+01C5  3A CA             		bnz formatLeftHudReturn
+01C7  C0 0467           		lbr syncActiveHud
+01CA                    formatLeftHudReturn:
+01CA  F8 3A             		ldi <mSpeedHi
+01CC  A2                		plo rDataPointer
+01CD  30 98             		br drawSpeedAndTimerResume
+
+01CF                    startRacePhaseCapture:
+01CF  86                		glo rLoTimer
+01D0  BF                		phi rGlobalState
+01D1  30 F9             		br drawRoad
+
+                        ; Runs only on the final countdown frame. Restore the saved road-finish phase
+                        ; when present, then snapshot the exact LEFT start state for the next lap.
+01D3                    countdownPhaseExternal:
+01D3  8F                		glo rGlobalState
+01D4  FF 0B             		smi 11
+01D6  3A E8             		bnz countdownPhaseExternalWait
+01D8  F8 4B             		ldi <mRacePhaseValid
+01DA  A2                		plo rDataPointer
+01DB  02                		ldn rDataPointer
+01DC  32 E5             		bz countdownPhaseExternalCapture
+01DE  22                		dec rDataPointer
+01DF  02                		ldn rDataPointer
+01E0  A6                		plo rLoTimer
+01E1  12                		inc rDataPointer
+01E2  F8 00             		ldi 0
+01E4  52                		str rDataPointer
+01E5                    countdownPhaseExternalCapture:
+01E5  C0 05E6           		lbr captureRoadStartSeconds
+01E8                    countdownPhaseExternalWait:
+01E8  C0 02F9           		lbr waitVsync
+
+01EB                    		.org $1EB
+01EB                    finishLapNormalizeBoundary:
+01EB  02                		ldn rDataPointer
+01EC  FA 3F             		ani $3F
+01EE  52                		str rDataPointer
+01EF  F8 4D             		ldi <mTimerSecLow
+01F1  A2                		plo rDataPointer
+01F2  02                		ldn rDataPointer
+01F3  CA 05F9           		lbnz finishLapNormalizeLow
+01F6  C0 0650           		lbr finishLapNormalizeBorrow
 
 01F9                    		.org $200-7
 01F9                    drawRoad:
@@ -741,7 +948,7 @@
 
 0361                    checkGlobalState:
 0361  8F                		glo rGlobalState
-0362  C0 0461           		lbr elapsedTimeGate
+0362  CA 0600           		lbnz selectGlobalState
 
 0365                    updateSpeed:
 0365  8C                		glo rloSpeedCounter
@@ -760,7 +967,10 @@
 0374  1C                		inc rloSpeedCounter				;rHiSpeed may be corrupted but it will be set in scanAccelKey
                         		
 0375                    lessCalledAtHigherSpeed:
-0375  C0 012D           		lbr scanAccelKey
+                        		; This is a deliberately light frame: no road or horizon rendering follows.
+                        		; Batch elapsed-time accounting here so heavy raster frames retain the
+                        		; original v1.05 instruction budget.
+0375  C0 0461           		lbr elapsedLightTick
 
 0378                    moreCalledAtHigherSpeed:
 0378  96                		ghi rHiCounter
@@ -805,6 +1015,17 @@
 03A3  C0 0500           		lbr calcRoadOrShiftHorizon
 
 
+                        ; Completed-road label alternates with the two actual road layouts.  This
+                        ; occupies the untouched ten-byte $03A6-$03AF gap and then falls into +60.
+03A6                    		.org $3A6
+03A6                    advanceRoadNumber:
+03A6  F8 2D             		ldi <mRoadNumber
+03A8  A2                		plo rDataPointer
+03A9  02                		ldn rDataPointer
+03AA  FB 03             		xri 3
+03AC  52                		str rDataPointer
+03AD  C0 0CA0           		lbr addRoadTime
+
 03B0                    		.org $3B0
                         ; Countdown-light sound. Values target the nominal Studio III NTSC clock:
                         ; B4 ~= 494.96 Hz, B5 ~= 989.92 Hz, with an exact 2:1 divider ratio.
@@ -816,7 +1037,9 @@
 03B6  3A B9             		bnz countdownBeepTickDone
 03B8  7A                		req
 03B9                    countdownBeepTickDone:
-03B9  C0 01AE           		lbr drawSpeedAndTimer
+                        		; During the countdown, render the existing HUD cells without resyncing
+                        		; LEFT.  This keeps the completed lap result stable until racing resumes.
+03B9  C0 01CA           		lbr formatLeftHudReturn
 
 03BC                    countdownBeepStart:
                         		; State 5..9 are the five actual light-illumination transitions.
@@ -985,126 +1208,169 @@
 0449  12                		inc rDataPointer
 044A  F8 01             		ldi 1
 044C  52                		str rDataPointer
-044D  C0 06B8           		lbr finishRoadPhaseReturn
+044D  C0 0453           		lbr finishLapCapture
 
                         ; Restore the saved LEFT-timer phase on the final countdown transition.  This
                         ; makes the post-finish +60-second award preserve the exact fractional remainder
                         ; instead of allowing the between-road countdown to replace it with a new phase.
 0450                    countdownPhaseRestore:
-0450  8F                		glo rGlobalState
-0451  FF 0B             		smi 11
-0453  3A 5E             		bnz countdownPhaseWait
-0455  F8 4B             		ldi <mRacePhaseValid
-0457  A2                		plo rDataPointer
-0458  02                		ldn rDataPointer
-0459  32 5E             		bz countdownPhaseWait
-045B  22                		dec rDataPointer
-045C  02                		ldn rDataPointer
-045D  A6                		plo rLoTimer
-045E                    countdownPhaseWait:
-045E  C0 02F9           		lbr waitVsync
+0450  C0 01D3           		lbr countdownPhaseExternal
+                        ; Unreachable from countdownPhaseRestore itself; finishRoadPhaseSave enters here.
+                        ; Keep elapsedLightTick fixed at $0461.
+0453                    finishLapCapture:
+0453  F8 4A             		ldi <mRacePhase
+0455  A2                		plo rDataPointer
+0456  02                		ldn rDataPointer
+0457  FA C0             		ani $C0
+0459  CA 01EB           		lbnz finishLapNormalizeBoundary
+045C  C0 0F9D           		lbr finishLapCore
+045F  C4                		nop
+0460  C4                		nop
 
                         ; -----------------------------------------------------------------------------
-                        ; Race DX live elapsed time
+                        ; Race DX exact light-frame HUD sync
                         ;
-                        ; State 0 is the only actively racing state.  Six 60 Hz refreshes are exactly
-                        ; one tenth of a second, so the live display only needs a cheap 0..5 frame
-                        ; divider.  The remainder itself is retained, preserving exact frame-level
-                        ; elapsed precision for later result formatting without doing centisecond BCD
-                        ; work on every raster-sensitive racing frame.
-0461                    elapsedTimeGate:
-0461  32 66             		bz elapsedTimeTick
-0463  C0 0600           		lbr selectGlobalState
+                        ; Whole elapsed seconds are advanced exactly when LEFT crosses a whole-second
+                        ; boundary.  Light frames therefore only copy three BCD digits and derive the
+                        ; shared tenth from R6.  This keeps TIME exact without the long per-frame BCD
+                        ; subtraction that could overrun the first active race frames.
+0461                    elapsedLightTick:
+0461  C0 0130           		lbr scanAccelKey
 
-0466                    elapsedTimeTick:
-0466  F8 48             		ldi <mElapsedFrac
-0468  A2                		plo rDataPointer
-0469  02                		ldn rDataPointer
-046A  FC 01             		adi 1
-046C  FF 06             		smi 6
-046E  33 76             		bdf elapsedCarryTenth
-0470  FC 06             		adi 6
-0472  52                		str rDataPointer
-0473  C0 0365           		lbr updateSpeed
+0464                    setGameOverHud:
+0464  C0 0467           		lbr syncActiveHud
+0467                    syncActiveHud:
+0467  F8 08             		ldi >RAM
+0469  B4                		phi r4buf
+046A  F8 28             		ldi <mElapsedHiddenHi
+046C  A4                		plo r4buf
+046D  F8 43             		ldi <mElapsedSecHi
+046F  A2                		plo rDataPointer
+0470  44                		lda r4buf
+0471  52                		str rDataPointer
+0472  12                		inc rDataPointer
+0473  44                		lda r4buf
+0474  52                		str rDataPointer
+0475  12                		inc rDataPointer
+0476  04                		ldn r4buf
+0477  52                		str rDataPointer
 
-0476                    elapsedCarryTenth:
-0476  F8 00             		ldi 0
-0478  52                		str rDataPointer
-0479  22                		dec rDataPointer		; blank cell
-047A  22                		dec rDataPointer		; tenths
-047B  02                		ldn rDataPointer
-047C  FC 01             		adi 1
-047E  FF 0A             		smi 10
-0480  33 88             		bdf elapsedCarrySeconds
-0482  FC 0A             		adi 10
-0484  52                		str rDataPointer
-0485  C0 0365           		lbr updateSpeed
+                        		; Shared tenth phase. Preserve the looked-up digit before loading the
+                        		; destination address; the pass-5 code accidentally stored that address.
+0478  86                		glo rLoTimer
+0479  FA 3F             		ani $3F
+047B  FC C0             		adi <phaseTenthTable
+047D  A5                		plo r5Buf
+047E  F8 0E             		ldi >phaseTenthTable
+0480  B5                		phi r5Buf
+0481  05                		ldn r5Buf
+0482  A5                		plo r5Buf
+0483  F8 47             		ldi <mElapsedTenth
+0485  A2                		plo rDataPointer
+0486  85                		glo r5Buf
+0487  52                		str rDataPointer
+0488  8F                		glo rGlobalState
+0489  FF FF             		smi 255
+048B  C2 04A2           		lbz setGameOverLabels
+048E  C0 0030           		lbr formatLeftHud
 
-0488                    elapsedCarrySeconds:
-0488  F8 00             		ldi 0
-048A  52                		str rDataPointer
-048B  22                		dec rDataPointer		; decimal point
-048C  22                		dec rDataPointer		; seconds ones
-048D  02                		ldn rDataPointer
-048E  FC 01             		adi 1
-0490  FF 0A             		smi 10
-0492  33 9A             		bdf elapsedCarrySecondsMid
-0494  FC 0A             		adi 10
-0496  52                		str rDataPointer
-0497  C0 0365           		lbr updateSpeed
-
-049A                    elapsedCarrySecondsMid:
+                        ; Stage-style race reset.  Keep this outside the $0600 state block so its
+                        ; established raster-sensitive labels do not move.
+0491                    resetStageState:
+0491  F8 00             		ldi 0
+0493  B8                		phi rHiCarX
+0494  A8                		plo rLoWheel
+0495  AC                		plo rloSpeedCounter
+0496  BC                		phi rHiSpeed
+0497  F8 3C             		ldi <mSpeedLo
+0499  A2                		plo rDataPointer
 049A  F8 00             		ldi 0
-049C  52                		str rDataPointer
-049D  22                		dec rDataPointer
-049E  02                		ldn rDataPointer
-049F  FC 01             		adi 1
-04A1  FF 0A             		smi 10
-04A3  33 AB             		bdf elapsedCarrySecondsHi
-04A5  FC 0A             		adi 10
-04A7  52                		str rDataPointer
-04A8  C0 0365           		lbr updateSpeed
+049C  73                		stxd
+049D  73                		stxd
+049E  52                		str rDataPointer
+049F  C0 061E           		lbr loadHorizon
 
-04AB                    elapsedCarrySecondsHi:
-04AB  F8 00             		ldi 0
-04AD  52                		str rDataPointer
-04AE  22                		dec rDataPointer
-04AF  02                		ldn rDataPointer
-04B0  FC 01             		adi 1
-04B2  FF 0A             		smi 10
-04B4  33 BC             		bdf elapsedSaturate
-04B6  FC 0A             		adi 10
-04B8  52                		str rDataPointer
-04B9  C0 0365           		lbr updateSpeed
+                        ; TIME has already been synchronized above.  Replace LEFT's numeric field by
+                        ; OVER and patch only the two packed bytes occupied by LEFT in each legend row.
+                        ; displayRefresh keeps scanning the same RAM addresses and therefore gains no
+                        ; raster-path work at GAME OVER.
+04A2                    setGameOverLabels:
+                        		; R2 still points at mElapsedTenth from syncActiveHud.  Canonicalize the
+                        		; terminal result to the exact awarded budget (185.0, 245.0, ...).
+04A2  F8 00             		ldi 0
+04A4  52                		str rDataPointer
+04A5  F8 41             		ldi <mLeftTenth
+04A7  A2                		plo rDataPointer
+04A8  E2                		sex rDataPointer
+04A9  F8 0B             		ldi <chrR
+04AB  73                		stxd
+04AC  F8 0C             		ldi <chrE
+04AE  73                		stxd
+04AF  F8 0D             		ldi <chrV
+04B1  73                		stxd
+04B2  F8 00             		ldi <chr0
+04B4  52                		str rDataPointer
+04B5  C0 01CA           		lbr formatLeftHudReturn
 
-04BC                    elapsedSaturate:
-04BC  F8 09             		ldi 9
-04BE  52                		str rDataPointer
-04BF  12                		inc rDataPointer
-04C0  52                		str rDataPointer
-04C1  12                		inc rDataPointer
-04C2  52                		str rDataPointer
-04C3  12                		inc rDataPointer		; decimal point
-04C4  12                		inc rDataPointer		; tenths
-04C5  52                		str rDataPointer
-04C6  C0 0365           		lbr updateSpeed
+                        ; Whole-second LEFT formatting is deliberately outside the packed $0030 block.
+                        ; The hidden elapsed counter has already advanced when LEFT reaches zero, so the
+                        ; first true 00.0 display instant can enter GAME OVER directly with exact TIME.
+04B8                    formatLeftWholeSafe:
+04B8  42                		lda rDataPointer
+04B9  B4                		phi r4buf
+04BA  02                		ldn rDataPointer
+04BB  A4                		plo r4buf
+04BC  3A C7             		bnz formatLeftWholeStore
+04BE  94                		ghi r4buf
+04BF  3A C7             		bnz formatLeftWholeStore
+04C1  F8 FF             		ldi 255
+04C3  AF                		plo rGlobalState
+04C4  C0 0464           		lbr setGameOverHud
+04C7                    formatLeftWholeStore:
+04C7  C0 0068           		lbr formatLeftStore
 
-                        ; Initialize only the formatting cells.  Elapsed digits persist across roads.
-04C9                    initElapsedTop:
-04C9  F8 47             		ldi <mElapsedBlank
-04CB  A2                		plo rDataPointer
-04CC  F8 0A             		ldi <chr_
-04CE  52                		str rDataPointer
-04CF  F8 45             		ldi <mElapsedDot
-04D1  A2                		plo rDataPointer
-04D2  F8 9A             		ldi <chrDot
+                        ; Result-only HUD update.  First freeze TIME from the exact hidden elapsed
+                        ; counter and captured finish tenth, then place NN.N in LEFT.  This code runs
+                        ; only after the road is finished; it never executes on a live race frame.
+04CA                    showLapHudSafe:
+04CA  F8 08             		ldi >RAM
+04CC  B4                		phi r4buf
+04CD  F8 28             		ldi <mElapsedHiddenHi
+04CF  A4                		plo r4buf
+04D0  F8 43             		ldi <mElapsedSecHi
+04D2  A2                		plo rDataPointer
+04D3  44                		lda r4buf
 04D4  52                		str rDataPointer
-04D5  F8 41             		ldi <mTimerLowSpace
-04D7  A2                		plo rDataPointer
-04D8  F8 0A             		ldi <chr_
+04D5  12                		inc rDataPointer
+04D6  44                		lda r4buf
+04D7  52                		str rDataPointer
+04D8  12                		inc rDataPointer
+04D9  04                		ldn r4buf
 04DA  52                		str rDataPointer
-04DB  22                		dec rDataPointer
-04DC  C0 0CC9           		lbr initTimer
+
+04DB  F8 50             		ldi <mLapTenth
+04DD  A4                		plo r4buf
+04DE  F8 47             		ldi <mElapsedTenth
+04E0  A2                		plo rDataPointer
+04E1  04                		ldn r4buf
+04E2  52                		str rDataPointer
+
+04E3  F8 4E             		ldi <mLapTens
+04E5  A4                		plo r4buf
+04E6  F8 3E             		ldi <mLeftHi
+04E8  A2                		plo rDataPointer
+04E9  44                		lda r4buf
+04EA  52                		str rDataPointer
+04EB  12                		inc rDataPointer
+04EC  44                		lda r4buf
+04ED  52                		str rDataPointer
+04EE  12                		inc rDataPointer
+04EF  F8 9A             		ldi <chrDot
+04F1  52                		str rDataPointer
+04F2  12                		inc rDataPointer
+04F3  04                		ldn r4buf
+04F4  52                		str rDataPointer
+04F5  C0 06B8           		lbr finishRoadPhaseReturn
 
 0500                    		.org $500
 0500                    calcRoadOrShiftHorizon:
@@ -1333,26 +1599,44 @@
 05D9                    shiftHorizonEnd:
 
 05D9                    incStores:
-                        		; Horizon-shift frames used to repaint the score pair every time.  The
-                        		; live fractional pair now changes only once per tenth, so skip that
-                        		; raster work on the other five frames.  Padding keeps drawScore fixed.
-05D9  F8 48             		ldi <mElapsedFrac
-05DB  A2                		plo rDataPointer
-05DC  02                		ldn rDataPointer
-05DD  3A E2             		bnz incStoresNoTimeDraw
-05DF  C0 05E6           		lbr drawScore
-05E2                    incStoresNoTimeDraw:
-05E2  C0 02F9           		lbr waitVsync
+                        		; TIME is now redrawn only on scanAccel frames with the rest of the HUD.
+                        		; Do no string work at all after a horizon shift: this restores margin on
+                        		; the intermittent left-turn failure path.  Padding keeps drawScore fixed.
+05D9  C0 02F9           		lbr waitVsync
+05DC  C4                		nop
+05DD  C4                		nop
+05DE  C4                		nop
+05DF  C4                		nop
+05E0  C4                		nop
+05E1  C4                		nop
+05E2  C4                		nop
+05E3  C4                		nop
+05E4  C4                		nop
 05E5  C4                		nop
                         		
-05E6                    drawScore:
-05E6  F8 46             		ldi <mElapsedTenth
+                         ; This slot used to be drawScore.  It now holds countdown-only road-start
+                        ; timing capture; live HUD work remains off horizon frames.
+05E6                    initElapsedTop:
+05E6                    captureRoadStartSeconds:
+05E6  F8 4C             		ldi <mTimerSecHi
 05E8  A2                		plo rDataPointer
-05E9  F8 40             		ldi <(digitsPos+4+2)
-05EB  A3                		plo r3Buf
-05EC  C0 01B4           		lbr drawString
-
-
+05E9  E2                		sex rDataPointer
+05EA  02                		ldn rDataPointer
+05EB  FE                		shl
+05EC  FE                		shl
+05ED  FE                		shl
+05EE  F4                		add
+05EF  F4                		add
+05F0  12                		inc rDataPointer
+05F1  F4                		add				; D = decimal seconds as binary 0..99
+05F2  F8 2B             		ldi <mRoadStartSeconds
+05F4  A2                		plo rDataPointer
+05F5  52                		str rDataPointer
+05F6  C0 0CB6           		lbr captureRoadStartTenth
+05F9                    finishLapNormalizeLow:
+05F9  FF 01             		smi 1
+05FB  52                		str rDataPointer
+05FC  C0 0F9D           		lbr finishLapCore
 
 0600                    		.org $600
 0600                    selectGlobalState:
@@ -1376,12 +1660,12 @@
 0613  FC 01             		adi 1
 0615  C2 01F9           		lbz drawRoad 			; if state = 2
 
-                        		;put zeros
-0618  F8 00             		ldi 0
-061A  B8                		phi rHiCarX
-061B  A8                		plo rLoWheel
-061C  AC                		plo rloSpeedCounter
-061D  BC                		phi rHiSpeed
+                        		; Stage-style transition: reset steering/speed and clear all three
+                        		; displayed speed digits.  The helper returns by branching to loadHorizon.
+0618  C0 0491           		lbr resetStageState
+061B  C4                		nop
+061C  C4                		nop
+061D  C4                		nop
 
 061E                    loadHorizon:
 061E  4A                		lda rRoadSectorAdr
@@ -1422,32 +1706,30 @@
 0644  73                		stxd
 
 0645                    initTopInfo:
-0645  C0 04C9           		lbr initElapsedTop
-0648  C4                		nop
-0649  C4                		nop
-064A  C4                		nop
-064B  C4                		nop
-064C  C4                		nop
-064D  C4                		nop
-064E  C4                		nop
+0645  F8 4B             		ldi <mRacePhaseValid
+0647  A2                		plo rDataPointer
+0648  02                		ldn rDataPointer
+0649  CA 02F9           		lbnz waitVsync
+064C  C0 00AC           		lbr initHudData
 064F  C4                		nop
 0650                    initTopInfoRest:
-0650  F8 0A             		ldi <chr_
-0652  73                		stxd
-0653  73                		stxd
-0654  F8 00             		ldi <chr0
-0656  73                		stxd
-0657  73                		stxd
-0658  73                		stxd
-                        		;todo: need more cicles
-0659  C0 02F9           		lbr waitVsync
+0650                    finishLapNormalizeBorrow:
+0650  22                		dec rDataPointer
+0651  02                		ldn rDataPointer
+0652  FF 01             		smi 1
+0654  52                		str rDataPointer
+0655  12                		inc rDataPointer
+0656  F8 09             		ldi 9
+0658  52                		str rDataPointer
+0659  C0 0F9D           		lbr finishLapCore
 
                         		
 065C                    startRace:
                         		;put zeros
 065C  AF                		plo rGlobalState
 065D  B6                		phi rHiCounter
-065E  C0 01F9           		lbr drawRoad
+                        		; Fixed-size hook; capture the active-race phase outside this timed block.
+065E  C0 01CF           		lbr startRacePhaseCapture
 
 
       = 0005            rRowAdr = r5Buf
@@ -1540,7 +1822,7 @@
 06C0  F8 AE             		ldi <roadData1
 06C2  AA                		plo rRoadSectorAdr
 06C3                    finishRoadNext:
-06C3  C0 0CA0           		lbr addRoadTime
+06C3  C0 03A6           		lbr advanceRoadNumber
 06C6                    finishRoadResume:
 06C6  F8 01             		ldi 1
 06C8  AF                		plo rGlobalState
@@ -1648,10 +1930,10 @@
 0C30  44                		.db 01000100b
 0C31  44                		.db 01000100b
 
-0C32  CC                btmR:	.db 11001100b
+0C32  EC                btmR:	.db 11101100b
 0C33  AA                		.db 10101010b
-0C34  CC                		.db 11001100b
-0C35  AA                btmV:	.db 10101010b
+0C34  EC                		.db 11101100b
+0C35  CA                btmV:	.db 11001010b
 0C36  AA                		.db 10101010b
 0C37  AA                		.db 10101010b
 0C38  AA                		.db 10101010b
@@ -1693,55 +1975,41 @@
 0C9B  00000000 44       btmDot:	.db 0,0,0,0,01000100b
 
 0CA0                    		.org $CA0
-                        ; Add 60 seconds in packed decimal display digits. If an unusually fast road
-                        ; would exceed the two-digit display, hold at 99 rather than wrapping.
+                        ; Add 60 seconds to LEFT without touching its fractional R6 phase.  TIME is
+                        ; independent cumulative elapsed state, so a checkpoint award never modifies it.
 0CA0                    addRoadTime:
-0CA0  F8 40             		ldi <mTimerLow
+                        		; Preserve the
+                        		; original two-digit saturation behaviour for an exceptionally fast road.
+0CA0  F8 4C             		ldi <mTimerSecHi
 0CA2  A2                		plo rDataPointer
 0CA3  02                		ldn rDataPointer
-0CA4  FC 00             		adi 0
-0CA6  FF 0A             		smi 10
-0CA8  3B AF             		bnf addRoadNoOnesCarry
+0CA4  FF 04             		smi 4
+0CA6  33 AE             		bdf addRoadCap99
+0CA8  FC 0A             		adi 10
 0CAA  52                		str rDataPointer
-0CAB  F8 06             		ldi 6			; +5 tens plus carry
-0CAD  30 B4             		br addRoadTens
-0CAF                    addRoadNoOnesCarry:
-0CAF  FC 0A             		adi 10			; undo trial subtraction
-0CB1  52                		str rDataPointer
-0CB2  F8 06             		ldi 6
-0CB4                    addRoadTens:
-0CB4  22                		dec rDataPointer
-0CB5  E2                		sex rDataPointer
-0CB6  F4                		add
-0CB7  FF 0A             		smi 10
-0CB9  3B C3             		bnf addRoadStoreTens
-0CBB  F8 09             		ldi 9
-0CBD  52                		str rDataPointer
-0CBE  12                		inc rDataPointer
-0CBF  52                		str rDataPointer
-0CC0  C0 06C6           		lbr finishRoadResume
-0CC3                    addRoadStoreTens:
-0CC3  FC 0A             		adi 10
-0CC5  52                		str rDataPointer
-0CC6  C0 06C6           		lbr finishRoadResume
+0CAB  C0 06C6           		lbr finishRoadResume
+0CAE                    addRoadCap99:
+0CAE  F8 09             		ldi 9
+0CB0  52                		str rDataPointer
+0CB1  12                		inc rDataPointer
+0CB2  52                		str rDataPointer
+0CB3  C0 06C6           		lbr finishRoadResume
 
-0CC9                    initTimer:
-0CC9  02                		ldn rDataPointer
-0CCA  3A DA             		bnz keepTimerLow
-0CCC  22                		dec rDataPointer
-0CCD  02                		ldn rDataPointer
-0CCE  3A DB             		bnz keepTimerHigh
-0CD0  12                		inc rDataPointer
-0CD1  F8 05             		ldi <chr0+<TIMER_START_LO
-0CD3  73                		stxd
-0CD4  F8 06             		ldi <chr0+<TIMER_START_HI
-0CD6  73                		stxd
-0CD7  C0 0650           		lbr initTopInfoRest
-0CDA                    keepTimerLow:
-0CDA  22                		dec rDataPointer
-0CDB                    keepTimerHigh:
-0CDB  22                		dec rDataPointer
-0CDC  C0 0650           		lbr initTopInfoRest
+0CB6                    initTimer:
+0CB6                    captureRoadStartTenth:
+0CB6  86                		glo rLoTimer
+0CB7  FA 3F             		ani $3F
+0CB9  FC C0             		adi <phaseTenthTable
+0CBB  A5                		plo r5Buf
+0CBC  F8 0E             		ldi >phaseTenthTable
+0CBE  B5                		phi r5Buf
+0CBF  05                		ldn r5Buf
+0CC0  12                		inc rDataPointer		; mRoadStartSeconds -> mRoadStartTenth
+0CC1  52                		str rDataPointer
+                        		; Do not refresh the HUD on the final countdown/light-clear frame.
+                        		; The ordinary active-race HUD path updates LEFT/TIME on the next frame.
+                        		; Keeping this transition to capture-only avoids the visible start flash.
+0CC2  C0 02F9           		lbr waitVsync
 
 0CDF                    		.org $CDF
 0CDF                    roadsideBeepTick:
@@ -1821,6 +2089,11 @@
 0DF2  0000              		.db 0, 0
 0DF4                    roadDataEnd:
 
+0DF4                    		.org $DF4
+0DF4                    gameLabel:
+0DF4  669E8AF8 AE9CAA98 		.db $66,$9E,$8A,$F8,$AE,$9C,$AA,$98,$6A,$9E
+0DFC  6A9E
+
 0E00                    		.org $E00
 0E00                    btmFudji:
 0E00  04103444 23480241 		.db 0x04, 0x10, 0x34, 0x44, 0x23, 0x48, 0x02, 0x41
@@ -1857,6 +2130,17 @@
 0EB7  40011E00 04       		.db 0x40,0x01,0x1E,0x00,0x04
 0EBC  800005            		.db 0x80,0x00,0x05
 
+
+0EC0                    		.org $EC0
+0EC0                    phaseTenthTable:
+0EC0  00000000 00000001 		.db 0,0,0,0,0,0,0,1,1,1,1,1,1,2,2,2
+0EC8  01010101 01020202
+0ED0  02020202 03030303 		.db 2,2,2,2,3,3,3,3,3,3,4,4,4,4,4,4
+0ED8  03030404 04040404
+0EE0  05050505 05050506 		.db 5,5,5,5,5,5,5,6,6,6,6,6,6,7,7,7
+0EE8  06060606 06070707
+0EF0  07070707 08080808 		.db 7,7,7,7,8,8,8,8,8,8,9,9,9,9,9,9
+0EF8  08080909 09090909
 
 
 0F00                    		.org $F00
@@ -1932,38 +2216,141 @@
 0F8D                    btmCaptionEnd:
 0F8D  00000000 00000000 		.db 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 0F95  00000000 00000000
+
+0F9D                    		.org $F9D
+                        ; Core finish-line lap calculation.  Phase normalization is performed in the
+                        ; small fixed-address helpers before entering here.
+0F9D                    finishLapCore:
+                        		; qFinish (0..9) from the canonical finish phase.
+0F9D  F8 4A             		ldi <mRacePhase
+0F9F  A2                		plo rDataPointer
+0FA0  02                		ldn rDataPointer
+0FA1  FA 3F             		ani $3F
+0FA3  FC C0             		adi <phaseTenthTable
+0FA5  A5                		plo r5Buf
+0FA6  F8 0E             		ldi >phaseTenthTable
+0FA8  B5                		phi r5Buf
+0FA9  05                		ldn r5Buf
+0FAA  B5                		phi r5Buf
+0FAB  F8 50             		ldi <mLapTenth
+0FAD  A2                		plo rDataPointer
+0FAE  52                		str rDataPointer
+
+                        		; Current hidden LEFT seconds, BCD -> binary 0..99, in mLapOnes temp.
+0FAF  F8 4C             		ldi <mTimerSecHi
+0FB1  A2                		plo rDataPointer
+0FB2  E2                		sex rDataPointer
+0FB3  02                		ldn rDataPointer
+0FB4  FE                		shl
+0FB5  FE                		shl
+0FB6  FE                		shl
+0FB7  F4                		add
+0FB8  F4                		add
+0FB9  12                		inc rDataPointer
+0FBA  F4                		add
+0FBB  F8 4F             		ldi <mLapOnes
+0FBD  A2                		plo rDataPointer
+0FBE  52                		str rDataPointer
+
+                        		; whole = roadStartSeconds - currentSeconds
+0FBF  F8 08             		ldi >RAM
+0FC1  B4                		phi r4buf
+0FC2  F8 2B             		ldi <mRoadStartSeconds
+0FC4  A4                		plo r4buf
+0FC5  E2                		sex rDataPointer
+0FC6  04                		ldn r4buf
+0FC7  F7                		sm
+0FC8  A4                		plo r4buf
+
+                        		; tenth = qFinish - qStart.  Borrow one whole second when negative.
+0FC9  F8 2C             		ldi <mRoadStartTenth
+0FCB  A2                		plo rDataPointer
+0FCC  E2                		sex rDataPointer
+0FCD  95                		ghi r5Buf
+0FCE  F7                		sm
+0FCF  33 DA             		bdf finishLapTenthReady
+0FD1  FC 0A             		adi 10
+0FD3  B5                		phi r5Buf
+0FD4  84                		glo r4buf
+0FD5  FF 01             		smi 1
+0FD7  A4                		plo r4buf
+0FD8  30 DB             		br finishLapSplit
+0FDA                    finishLapTenthReady:
+0FDA  B5                		phi r5Buf
+
+0FDB                    finishLapSplit:
+                        		; Preserve the completed road number in R4.1; R2 still points at
+                        		; mRoadStartTenth, so the adjacent road-number cell costs only 3 bytes.
+0FDB  12                		inc rDataPointer
+0FDC  02                		ldn rDataPointer
+0FDD  B4                		phi r4buf
+
+                        		; Binary whole seconds -> decimal tens/ones.
+0FDE  F8 00             		ldi 0
+0FE0  BF                		phi rGlobalState
+0FE1                    finishLapDiv10:
+0FE1  84                		glo r4buf
+0FE2  FF 0A             		smi 10
+0FE4  3B ED             		bnf finishLapDivDone
+0FE6  A4                		plo r4buf
+0FE7  9F                		ghi rGlobalState
+0FE8  FC 01             		adi 1
+0FEA  BF                		phi rGlobalState
+0FEB  30 E1             		br finishLapDiv10
+0FED                    finishLapDivDone:
+0FED  FC 0A             		adi 10
+0FEF  F8 4F             		ldi <mLapOnes
+0FF1  A2                		plo rDataPointer
+0FF2  52                		str rDataPointer
+0FF3  22                		dec rDataPointer
+0FF4  9F                		ghi rGlobalState
+0FF5  52                		str rDataPointer
+0FF6  12                		inc rDataPointer
+0FF7  12                		inc rDataPointer
+0FF8  12                		inc rDataPointer
+0FF9  95                		ghi r5Buf
+0FFA  52                		str rDataPointer
+0FFB  C0 00EA           		lbr showLapHud
+
 0FFF                    		.org 0xfff
 0FFF  FF                		.db 0xff
 1000                    		.end
 
 00000 Total Error(s)
 
-ADDROADNOONESCARRY 0CAF    ADDROADSTORETENS   0CC3    ADDROADTENS        0CB4
-ADDROADTIME        0CA0    BANDTABLE          0425    BTM0               0C29
-BTM1               0C13    BTM2               0C1F    BTM3               0C25
-BTM4               0C2A    BTM5               0C21    BTM6               0C19
-BTM7               0C2D    BTM8               0C1B    BTM9               0C1D
-BTMCAPTION         0F3D    BTMCAPTIONEND      0F8D    BTMCAR             0C5F
-BTMCARCENTER       0C42    BTMCARLEFT         0C4C    BTMCARRIGHT        0C56
-BTMDOT             0C9B    BTME               0C17    BTMFUDJI           0E00
-BTMLIGHT0          06FC    BTMLIGHTBOTTOM     06D4    BTMLIGHTTOP        06CC
-BTMMOUNTAINS       0E5A    BTMO               0C29    BTMR               0C32
-BTMTOPTEXT         0C72    BTMV               0C35    BTM_               0C0E
-CALCROAD           0538    CALCROADEND        0580    CALCROADEXIT       057C
-CALCROADLOOP       0553    CALCROADORSHIFTHORIZON                        0500
-CAR_X_LIMIT        003F E  CHANGESPEEDEND     0186    CHECKGLOBALSTATE   0361
-CHECKTURN          015A    CHR0               0C00    CHRDOT             0C9A
-CHRE               0C0C    CHRR               0C0B    CHRV               0C0D
-CHR_               0C0A    CIBAND             040F    CICELL             0414
-CLEARLIGHT         0661    CLEARPERSPECTIVEY  054C    CLEARRAM           010C
-CLEARRAMLOOP       010E    CLEARROAD          0200    CLEARROADLOOP      0204
+ADDROADCAP99       0CAE    ADDROADTIME        0CA0    ADVANCEROADNUMBER  03A6
+BANDTABLE          0425    BTM0               0C29    BTM1               0C13
+BTM2               0C1F    BTM3               0C25    BTM4               0C2A
+BTM5               0C21    BTM6               0C19    BTM7               0C2D
+BTM8               0C1B    BTM9               0C1D    BTMCAPTION         0F3D
+BTMCAPTIONEND      0F8D    BTMCAR             0C5F    BTMCARCENTER       0C42
+BTMCARLEFT         0C4C    BTMCARRIGHT        0C56    BTMDOT             0C9B
+BTME               0C17    BTMFUDJI           0E00    BTMLIGHT0          06FC
+BTMLIGHTBOTTOM     06D4    BTMLIGHTTOP        06CC    BTMMOUNTAINS       0E5A
+BTMO               0C29    BTMR               0C32    BTMTOPTEXT         0C72
+BTMV               0C35    BTM_               0C0E    CALCROAD           0538
+CALCROADEND        0580    CALCROADEXIT       057C    CALCROADLOOP       0553
+CALCROADORSHIFTHORIZON                        0500    
+CAPTUREROADSTARTSECONDS                       05E6    
+CAPTUREROADSTARTTENTH                         0CB6    CAR_X_LIMIT        003F E
+CHANGESPEEDEND     0189    CHECKGLOBALSTATE   0361    CHECKTURN          015D
+CHR0               0C00    CHRDOT             0C9A    CHRE               0C0C
+CHRR               0C0B    CHRV               0C0D    CHR_               0C0A
+CIBAND             040F    CICELL             0414    CLEARLIGHT         0661
+CLEARPERSPECTIVEY  054C    CLEARRAM           010C    CLEARRAMLOOP       010E
+CLEARROAD          0200    CLEARROADLOOP      0204    
 CLEARROADSKIPZEROLOOP                         0201    COLOURINIT         0400
 COUNTDOWNBEEPHIGH  03D4    COUNTDOWNBEEPOUT   03DC    COUNTDOWNBEEPSTART 03BC
 COUNTDOWNBEEPSTARTDONE                        03E0    COUNTDOWNBEEPTICK  03B0
 COUNTDOWNBEEPTICKDONE                         03B9    
-COUNTDOWNPHASERESTORE                         0450    COUNTDOWNPHASEWAIT 045E
-COUNTDOWNTONEB4    03E3    COUNTDOWNTONEB5    03E4    DECRKEY            039C
-DECSPEED           0167    DECSPEEDCOUNTER    036B    DECSPEEDNEXT       016C
+COUNTDOWNPHASEEXTERNAL                        01D3    
+COUNTDOWNPHASEEXTERNALCAPTURE                 01E5    
+COUNTDOWNPHASEEXTERNALWAIT                    01E8    
+COUNTDOWNPHASERESTORE                         0450    COUNTDOWNTONEB4    03E3
+COUNTDOWNTONEB5    03E4    DECREMENTLEFTBORROW                           009C
+DECREMENTLEFTLOW   00A6    DECREMENTLEFTRETURN                           0195
+DECREMENTLEFTSECOND                           008C    DECRKEY            039C
+DECSPEED           016A    DECSPEEDCOUNTER    036B    DECSPEEDNEXT       016F
 DEC_SPEED_ROADSIDE 0004 E  DIGITSPOS          0C3A    DISPLAYREFRESH     0300
 DISPLAYTEST        0356    DISPLAYTEST2       0358    DISPLAYWAIT0       0306
 DISPLAYWAIT1       032A    DISPLAYWAIT2       0335    DISPLAYWAIT3       033E
@@ -1975,45 +2362,57 @@ DRAWFINISHONELINE  02AC    DRAWI              0257    DRAWIFMARKD        0239
 DRAWIFMARKI        0262    DRAWLIGHT          068D    DRAWLIGHTBOTTOM    06A5
 DRAWLIGHTEND       06AE    DRAWLOOPD          0232    DRAWLOOPI          025B
 DRAWPREVIOUS       021C    DRAWROAD           01F9    DRAWROADEND        027E
-DRAWSCORE          05E6    DRAWSPEEDANDTIMER  01AE    DRAWSTRING         01B4
-DRAWSTRINGMAINLOOP 01BB    DRAWTWOCHARSLOOP   01C4    
-ELAPSEDCARRYSECONDS                           0488    
-ELAPSEDCARRYSECONDSHI                         04AB    
-ELAPSEDCARRYSECONDSMID                        049A    ELAPSEDCARRYTENTH  0476
-ELAPSEDSATURATE    04BC    ELAPSEDTIMEGATE    0461    ELAPSEDTIMETICK    0466
-FINAL_BEEP_FRAMES  000C E  FINISHROAD         06B5    FINISHROAD1        0DCF
-FINISHROAD2        0DF2    FINISHROADNEXT     06C3    
+DRAWSPEEDANDTIMER  0195    DRAWSPEEDANDTIMERRESUME                       0198
+DRAWSTRING         019B    DRAWSTRINGMAINLOOP 01A2    DRAWTWOCHARSLOOP   01AB
+ELAPSEDBASELINEANDDRAWSPEED                   01C2    ELAPSEDLIGHTTICK   0461
+FINAL_BEEP_FRAMES  000C E  FINISHLAPCAPTURE   0453    FINISHLAPCORE      0F9D
+FINISHLAPDIV10     0FE1    FINISHLAPDIVDONE   0FED    
+FINISHLAPNORMALIZEBORROW                      0650    
+FINISHLAPNORMALIZEBOUNDARY                    01EB    
+FINISHLAPNORMALIZELOW                         05F9    FINISHLAPSPLIT     0FDB
+FINISHLAPTENTHREADY                           0FDA    FINISHROAD         06B5
+FINISHROAD1        0DCF    FINISHROAD2        0DF2    FINISHROADNEXT     06C3
 FINISHROADPHASEMINUSONE                       0440    
 FINISHROADPHASERETURN                         06B8    
 FINISHROADPHASESAVE                           0430    
 FINISHROADPHASESTORE                          0443    FINISHROADRESUME   06C6
-FIXTIMER           0318    GAMEOVER           060E    
-GLOBALSTATECOUNTDOWN                          0669    
+FIXTIMER           0318    FORMATLEFTBORROW   0052    FORMATLEFTHUD      0030
+FORMATLEFTHUDRETURN                           01CA    FORMATLEFTSTORE    0068
+FORMATLEFTWHOLE    005E    FORMATLEFTWHOLESAFE                           04B8
+FORMATLEFTWHOLESTORE                          04C7    GAMELABEL          0DF4
+GAMEOVER           060E    GLOBALSTATECOUNTDOWN                          0669
 GLOBALSTATECOUNTDOWNDRAW                      067D    
 GLOBALSTATECOUNTDOWNEND                       06B2    
 GLOBALSTATECOUNTDOWNTIMER                     0671    INCCARX            0520
-INCPERSPECTIVEY    054F    INCRKEY            039A    INCSPEED           0177
-INCSPEEDCOUNTER    0374    INCSPEEDLOOP       017F    INCSTORES          05D9
-INCSTORESNOTIMEDRAW                           05E2    INCTIMER           0319
-INITELAPSEDTOP     04C9    INITTIMER          0CC9    INITTOPINFO        0645
-INITTOPINFOREST    0650    KEEPTIMERHIGH      0CDB    KEEPTIMERLOW       0CDA
-LESSCALLEDATHIGHERSPEED                       0375    LIGHT_POSITION_Y   0065 E
-LOADHORIZON        061E    LOADHORIZONLOOP    062C    LOOP               0593
-M1                 0D00    M2                 0D29    M3                 0D53
-M4                 0D80    MAIN               0361    MARKSWIDTHY        0D00
-MAX_SEGMENT_Y      001B E  MAX_SPEED          0017 E  MAX_SPEED_ROADSIDE 000B E
-MBTMDIGITS         0858 E  MBTMHORIZONEND     08FF E  MBTMHORIZONSTART   0880 E
-MDATA              0039 E  MELAPSEDBLANK      0047 E  MELAPSEDDOT        0045 E
-MELAPSEDFRAC       0048 E  MELAPSEDSECHI      0042 E  MELAPSEDSECLOW     0044 E
-MELAPSEDSECMID     0043 E  MELAPSEDTENTH      0046 E  MENUDISPLAYREFRESH 0F05
-MENUDISPLAYWAIT0   0F0E    MENUDISPLAYWAIT1   0F16    MENUDISPLAYWAIT2   0F1E
-MENUEXIT           0F3A    MENUREADANYKEY     0F2E    MENUWAITVSYNC      0F00
+INCPERSPECTIVEY    054F    INCREMENTELAPSEDDIGIT                         0076
+INCREMENTELAPSEDSECOND                        0073    
+INCREMENTELAPSEDSTORE                         0083    INCRKEY            039A
+INCSPEED           017A    INCSPEEDCOUNTER    0374    INCSPEEDLOOP       0182
+INCSTORES          05D9    INCTIMER           0319    INITELAPSEDTOP     05E6
+INITHUDDATA        00AC    INITHUDDATALOOP    00D2    INITHUDTEXTRETURN  0118
+INITIALHUDCHARS    00DC    INITTIMER          0CB6    INITTOPINFO        0645
+INITTOPINFOREST    0650    LESSCALLEDATHIGHERSPEED                       0375
+LIGHT_POSITION_Y   0065 E  LOADHORIZON        061E    LOADHORIZONLOOP    062C
+LOOP               0593    M1                 0D00    M2                 0D29
+M3                 0D53    M4                 0D80    MAIN               0361
+MARKSWIDTHY        0D00    MAX_SEGMENT_Y      001B E  MAX_SPEED          0017 E
+MAX_SPEED_ROADSIDE 000B E  MBTMDIGITS         0858 E  MBTMHORIZONEND     08FF E
+MBTMHORIZONSTART   0880 E  MDATA              0039 E  MELAPSEDBLANK      0042 E
+MELAPSEDDOT        0046 E  MELAPSEDFRAC       0048 E  MELAPSEDHIDDENHI   0028 E
+MELAPSEDHIDDENLOW  002A E  MELAPSEDHIDDENMID  0029 E  MELAPSEDSECHI      0043 E
+MELAPSEDSECLOW     0045 E  MELAPSEDSECMID     0044 E  MELAPSEDTENTH      0047 E
+MENUDISPLAYREFRESH 0F05    MENUDISPLAYWAIT0   0F0E    MENUDISPLAYWAIT1   0F16
+MENUDISPLAYWAIT2   0F1E    MENUEXIT           0F3A    MENUREADANYKEY     0F2E
+MENUWAITVSYNC      0F00    MLAPONES           004F E  MLAPTENS           004E E
+MLAPTENTH          0050 E  MLEFTDOT           0040 E  MLEFTHI            003E E
+MLEFTLOW           003F E  MLEFTTENTH         0041 E  
 MORECALLEDATHIGHERSPEED                       0378    MPERSPECTIVEY      0035 E
-MRACEPHASE         004A E  MRACEPHASEVALID    004B E  MROADSIZE          0033 E
-MROADSTARTADR      0034 E  MSPEEDHI           003A E  MSPEEDLO           003C E
-MSPEEDSPACE        003D E  MTIMERHI           003F E  MTIMERHISPACE      003E E
-MTIMERLOW          0040 E  MTIMERLOWSPACE     0041 E  NOKEY              0394
-NONEEDDECSPEED     0165    NOTBREAK           0137    NOTZERO            063B
+MRACEPHASE         004A E  MRACEPHASEVALID    004B E  MROADNUMBER        002D E
+MROADSIZE          0033 E  MROADSTARTADR      0034 E  MROADSTARTSECONDS  002B E
+MROADSTARTTENTH    002C E  MSPEEDHI           003A E  MSPEEDLO           003C E
+MSPEEDSPACE        003D E  MTIMERSECHI        004C E  MTIMERSECLOW       004D E
+MTOPTEXT           0800 E  NOKEY              0394    NONEEDDECSPEED     0168
+NOTBREAK           013A    NOTZERO            063B    PHASETENTHTABLE    0EC0
 PIXELDATA          0700    PREPARELEVELSTEP   0612    R0                 0000 E
 R1                 0001 E  R14H_PIXELDATA     0003 E  R15H_PIXELDATA     0004 E
 R2                 0002 E  R3                 0003 E  R3BUF              0003 E
@@ -2023,30 +2422,33 @@ R8                 0008 E  R9                 0009 E  RA                 000A E
 RAM                0800 E  RAMSTACK           08BF E  RB                 000B E
 RBEEPTIMER         000D E  RC                 000C E  RD                 000D E
 RDATAPOINTER       0002 E  RE                 000E E  RESET              0000
-RESETSPEEDCOUNTER  036E    RF                 000F E  RGLOBALSTATE       000F E
-RHICARX            0008 E  RHICOUNTER         0006 E  RHIDELTAX          0009 E
-RHISPEED           000C E  RLODXCORR          0009 E  RLOSPEEDCOUNTER    000C E
-RLOTIMER           0006 E  RLOWHEEL           0008 E  RMARKSWIDTHY       000B E
-ROADDATA1          0DAE    ROADDATA2          0DD1    ROADDATAEND        0DF4
-ROADSIDEBEEPCADENCE                           0CF2    ROADSIDEBEEPDONE   0CEF
-ROADSIDEBEEPQUIET  0CFD    ROADSIDEBEEPSTART  03E5    ROADSIDEBEEPSTOP   03F7
-ROADSIDEBEEPTICK   0CDF    ROADSIDEBEEPTRIGGER                           0CFA
+RESETSPEEDCOUNTER  036E    RESETSTAGESTATE    0491    RF                 000F E
+RGLOBALSTATE       000F E  RHICARX            0008 E  RHICOUNTER         0006 E
+RHIDELTAX          0009 E  RHISPEED           000C E  RLODXCORR          0009 E
+RLOSPEEDCOUNTER    000C E  RLOTIMER           0006 E  RLOWHEEL           0008 E
+RMARKSWIDTHY       000B E  ROADDATA1          0DAE    ROADDATA2          0DD1
+ROADDATAEND        0DF4    ROADSIDEBEEPCADENCE                           0CF2
+ROADSIDEBEEPDONE   0CEF    ROADSIDEBEEPQUIET  0CFD    ROADSIDEBEEPSTART  03E5
+ROADSIDEBEEPSTOP   03F7    ROADSIDEBEEPTICK   0CDF    
+ROADSIDEBEEPTRIGGER                           0CFA    
 ROAD_BEEP_GAP_TICKS                           0006 E  ROAD_BEEP_TICKS    0001 E
 ROAD_LIMIT         0037 E  RROADSECTORADR     000A E  RROWADR            0005 E
 RSCREENYADR        0007 E  RTONEPOINTER       000E E  SAVENEWCARX        0531
-SCANACCELKEY       012D    SCANTURNKEY        0380    SCANTURNKEYEND     039F
-SCANTURNKEYINPUT   0383    SELECTGLOBALSTATE  0600    SHIFTHORIZON       0583
-SHIFTHORIZONEND    05D9    SHIFTLEFTHORIZON   058B    
-SHIFTLEFTHORIZONLOOP                          0591    SHIFTRIGHTHORIZON  05AD
-SHIFTRIGHTHORIZONLOOP                         05B2    SKIPDECCARX        0522
+SCANACCELKEY       0130    SCANTURNKEY        0380    SCANTURNKEYEND     039F
+SCANTURNKEYINPUT   0383    SELECTGLOBALSTATE  0600    SETGAMEOVERHUD     0464
+SETGAMEOVERLABELS  04A2    SHIFTHORIZON       0583    SHIFTHORIZONEND    05D9
+SHIFTLEFTHORIZON   058B    SHIFTLEFTHORIZONLOOP                          0591
+SHIFTRIGHTHORIZON  05AD    SHIFTRIGHTHORIZONLOOP                         05B2
+SHOWLAPHUD         00EA    SHOWLAPHUDSAFE     04CA    SKIPDECCARX        0522
 SPEED_SKID_START   0007 E  START              0100    STARTRACE          065C
-STARTROAD1         0DB2    STARTROAD2         0DD5    START_BEEP_FRAMES  0006 E
+STARTRACEPHASECAPTURE                         01CF    STARTROAD1         0DB2
+STARTROAD2         0DD5    START_BEEP_FRAMES  0006 E  
 START_PERSPECTIVE_Y                           0011 E  STORECARX          0523
-STOREZEROS         0634    TIMER_START_HI     0006 E  TIMER_START_LO     0005 E
-TONE_B4            00E1 E  TONE_B5            0070 E  UPDATECARX         0500
-UPDATEDELTAXANDDXCORR                         021E    UPDATEPERSPECTIVEY 0547
-UPDATESPEED        0365    UPDATETIMER        0312    UPDATETIMERBTM     0186
-UPDATETIMERBTMDEC  01AB    UPDATETIMERBTMEND  01AE    VIDEOINT           0014
+STOREZEROS         0634    SYNCACTIVEHUD      0467    TIMER_START_HI     0006 E
+TIMER_START_LO     0005 E  TONE_B4            00E1 E  TONE_B5            0070 E
+UPDATECARX         0500    UPDATEDELTAXANDDXCORR                         021E
+UPDATEPERSPECTIVEY 0547    UPDATESPEED        0365    UPDATETIMER        0312
+UPDATETIMERBTM     0189    UPDATETIMERBTMEND  0195    VIDEOINT           0014
 WAITVSYNC          02F9    WHEEL_LIMIT        0008 E  
 WHEEL_LIMIT_SPEEDUP                           0004 E  ZERO128B           0780
 _LOOP              0021    _RETURN            0012
