@@ -20,7 +20,6 @@
 ;		R7 		Draw Bomb Subroutine
 ;		RF 		Random Number Seed
 ;
-;
 ; 		Studio 2 Specifics/Porting advice
 ;	 	=================================
 ;
@@ -1018,11 +1017,6 @@ Stop:													; game ends, press RESET to play again.
 ;
 ;										CDP1864 colour for the Studio III / MPT-02 family
 ;
-;
-;
-;
-;
-;
 ; ***************************************************************************************************************************************
 		.org 	$A00 										; a spare cartridge page: the game itself is $400-$7FF
 
@@ -1057,11 +1051,6 @@ BandTable:
 ; ***************************************************************************************************************************************
 ;
 ;										CDP1864 colour for the Studio III / MPT-02 family
-;
-;
-;
-;
-;
 ;
 ; ***************************************************************************************************************************************
 		.org 	$A00 										; a spare cartridge page: the game itself is $400-$7FF

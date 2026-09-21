@@ -478,7 +478,6 @@
 09BA  FFFFFC                    .db     $FF,$FF,$FC
 09BD  01                        .db     $01
                         ;
-                        ;
 09BE                    PadInfo:                                ; pairs of positions, masks
 09BE  0010                      .db     0,$10                   ; Left Goalie [$804]
 09C0  0540                      .db     5,$40                   ; Left Striker [$807]

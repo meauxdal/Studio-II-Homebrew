@@ -460,7 +460,6 @@ Banner: .db     $FF,$FF,$FC
         .db     $FF,$FF,$FC
         .db     $01
 ;
-;
 PadInfo:                                ; pairs of positions, masks
         .db     0,$10                   ; Left Goalie [$804]
         .db     5,$40                   ; Left Striker [$807]
