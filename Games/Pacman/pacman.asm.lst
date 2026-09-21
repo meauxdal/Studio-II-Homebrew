@@ -1692,7 +1692,14 @@
 0DAA  0A                		ldn 	ra 											; and increment it.
 0DAB  FC 01             		adi 	1
 0DAD  5A                		str 	ra
+0DAA  0A                		ldn 	ra 											; and increment it.
+0DAB  FC 01             		adi 	1
+0DAD  5A                		str 	ra
 
+0DAE  F8 44             		ldi 	EatCounter 									; if eaten everything, go to next level.
+0DB0  AA                		plo 	ra
+0DB1  0A                		ldn 	ra
+0DB2  32 3D             		bz 		NextLevel
 0DAE  F8 44             		ldi 	EatCounter 									; if eaten everything, go to next level.
 0DB0  AA                		plo 	ra
 0DB1  0A                		ldn 	ra
@@ -1719,6 +1726,15 @@
 0DC9  F8 01             		ldi 	1 											; set score digit index to 1
 0DCB  AE                		plo 	re
 
+0DC9  F8 01             		ldi 	1 											; set score digit index to 1
+0DCB  AE                		plo 	re
+
+0DCC                    ScoreWriteLoop:
+0DCC  8E                		glo 	re 											; convert 3 LSBs of RE to screen address in RD
+0DCD  FA 07             		ani 	7
+0DCF  AD                		plo 	rd
+0DD0  F8 09             		ldi 	VideoPage 									; put in video page
+0DD2  BD                		phi 	rd
 0DCC                    ScoreWriteLoop:
 0DCC  8E                		glo 	re 											; convert 3 LSBs of RE to screen address in RD
 0DCD  FA 07             		ani 	7
@@ -1726,6 +1742,13 @@
 0DD0  F8 09             		ldi 	VideoPage 									; put in video page
 0DD2  BD                		phi 	rd
 
+0DD3  4A                		lda 	ra 											; read next score digit
+0DD4  FC 10             		adi 	$10 										; score table offset in BIOS
+0DD6  AF                		plo 	rf
+0DD7  F8 02             		ldi 	$02 										; read from $210+n
+0DD9  BF                		phi 	rf
+0DDA  0F                		ldn 	rf 											; into D, the new offset
+0DDB  AF                		plo 	rf 											; put into R4, R4 now contains 5 rows graphic data
 0DD3  4A                		lda 	ra 											; read next score digit
 0DD4  FC 10             		adi 	$10 										; score table offset in BIOS
 0DD6  AF                		plo 	rf
@@ -1747,7 +1770,214 @@
 0DE7  2C                		dec 	rc 											; decrement counter
 0DE8  8C                		glo 	rc
 0DE9  3A DF             		bnz 	OutputChar 									; loop back if nonzero
+0DDC  F8 05             		ldi 	5 											; set R5.0 to 6
+0DDE  AC                		plo 	rc
+0DDF                    OutputChar:
+0DDF  4F                		lda 	rf 											; read character and advance
+0DE0  F6                		shr 												; centre in byte
+0DE1  F6                		shr
+0DE2  5D                		str 	rd
+0DE3  8D                		glo 	rd
+0DE4  FC 08             		adi 	8
+0DE6  AD                		plo 	rd
+0DE7  2C                		dec 	rc 											; decrement counter
+0DE8  8C                		glo 	rc
+0DE9  3A DF             		bnz 	OutputChar 									; loop back if nonzero
 0DEB  5D                		str 	rd
+0DEC  1E                		inc 	re 											; increment score index counter
+0DED  8E                		glo 	re
+0DEE  FB 07             		xri 	7 											; reached seven, end of score write.
+0DF0  3A CC             		bnz 	ScoreWriteLoop
+
+0DF2  30 F2             Dead:	br 		Dead
+
+                        ; ***************************************************************************************************************************************
+                        ;
+                        ;												CDP1864 / Studio III colour support
+                        ;
+                        ;	The Studio III (and the MPT-02/Victory family) put 64 colour cells behind a one-page window at $B00. Each cell covers
+                        ;	8 pixels across by 4 display rows down, so the 64x32 screen is divided into an 8x8 grid of colour blocks. The cell for a
+                        ;	given screen byte is indexed {row[4:2], byte_column}, which is simply (row/4)*8 + column -- so the table below is in
+                        ;	natural reading order, eight entries per band, top band first.
+                        ;
+                        ;	Three bits per cell, and NOT in {R,G,B} order -- it is the 1864's pin order:
+                        ;
+                        ;		bit 0 = RED     bit 1 = BLUE     bit 2 = GREEN
+                        ;
+                        ;		0 black   1 red   2 blue   3 magenta   4 green   5 yellow   6 cyan   7 white
+                        ;
+                        ;	A lit pixel takes its cell's colour; an unlit one takes the global background, which powers up blue and is stepped by
+                        ;	OUT 1. We deliberately do NOT issue OUT 1: on a Studio II that same port turns the display off, and leaving it alone is
+                        ;	what keeps this one binary working on both machines. It is also what RCA themselves did -- their dual-machine cartridges
+                        ;	(pinball and the rest) leave the background at its default blue.
+                        ;
+                        ;	On a Studio II the whole of $B00 is undecoded (A9 is high, so it is neither RAM nor, unless a cartridge pages it, ROM),
+                        ;	so every store below goes nowhere and the game runs exactly as it always did.
+                        ;
+                        ; ***************************************************************************************************************************************
+
+0A00                    		.org 	$A00 										; a spare cartridge page: $400-$7FF and $C00-$DFF are both full
+
+0A00                    ColourInit:
+0A00  F8 0B             		ldi 	$0B 										; lay down the base colour, then into the game
+0A02  BD                		phi 	rd
+0A03  F8 00             		ldi 	0
+0A05  AD                		plo 	rd
+0A06                    CI_Loop:
+0A06  F8 07             		ldi 	BaseColour
+0A08  5D                		str 	rd
+0A09  1D                		inc 	rd
+0A0A  8D                		glo 	rd
+0A0B  FB 40             		xri 	64
+0A0D  3A 06             		bnz 	CI_Loop
+0A0F  C0 0D25           		lbr 	StartGame
+
+                        ; ---------------------------------------------------------------------------------------------------------------------------------------
+                        ;	FrameColour - called once per frame from the main loop.
+                        ;
+                        ;	Does what the inline block it replaced did (decrement the chasing timer, beep on alternate frames) and then puts the power-pill
+                        ;	state on the screen. This is the one piece of colour on this hardware that costs nothing in fidelity: it is a *global* state, so it
+                        ;	needs no alignment between the 8x4 colour grid and anything the game draws.
+                        ;
+                        ;	While ghosts are edible the whole board flashes white/blue on an 8-frame cycle -- the same cycle the beeper already uses. The game
+                        ;	already swaps the ghost sprite to the hollow GhostReverse shape, which is the only cue a Studio II gets; this makes it unmissable.
+                        ;
+                        ;	Repainting is not done every frame. While chasing it happens only when the low three bits of the timer are zero, which is exactly
+                        ;	when the flash bit flips, so it costs 64 stores every eighth frame rather than every frame. Coming out of the chase it happens once,
+                        ;	guarded by ColourState.
+                        ; ---------------------------------------------------------------------------------------------------------------------------------------
+
+0A12                    FrameColour:
+0A12  F8 52             		ldi 	ChasingTimer 								; RA -> chasing timer (RA.1 is already the RAM page)
+0A14  AA                		plo 	ra
+0A15  0A                		ldn 	ra
+0A16  32 4B             		bz 		FC_NotChasing 								; not chasing: make sure the normal palette is loaded
+0A18  FF 01             		smi 	1 											; decrement it
+0A1A  5A                		str 	ra
+0A1B  32 4B             		bz 		FC_NotChasing 								; just expired this frame -- restore normally, do not flash
+
+0A1D  FA 08             		ani 	8 											; beeper on alternate frames, as before
+0A1F  32 24             		bz 		FC_NoBeep
+0A21  F8 0B             		ldi 	11
+0A23  57                		str 	r7
+0A24                    FC_NoBeep:
+0A24  0A                		ldn 	ra 											; repaint only when the flash bit is about to flip
+0A25  FA 07             		ani 	7
+0A27  3A 93             		bnz 	FC_Done
+0A29  0A                		ldn 	ra 											; which half of the flash?
+0A2A  FA 08             		ani 	8
+0A2C  32 32             		bz 		FC_FlashB
+0A2E  F8 07             		ldi 	7 											; white
+0A30  30 34             		br 		FC_Fill
+0A32                    FC_FlashB:
+0A32  F8 03             		ldi 	3 											; magenta. NOT blue: the background is blue, so blue cells would make
+                        															; lit and unlit pixels identical and the board would vanish for half
+                        															; the flash. Measured -- 20 of 70 sampled frames came back completely
+                        															; blank before this was changed. White and magenta are both legible
+                        															; against the background, and neither is in the normal palette.
+0A34                    FC_Fill:
+0A34  AC                		plo 	rc 											; hold the colour
+0A35  F8 0B             		ldi 	$0B
+0A37  BD                		phi 	rd
+0A38  F8 00             		ldi 	0
+0A3A  AD                		plo 	rd
+0A3B                    FC_FillLoop:
+0A3B  8C                		glo 	rc 											; every cell the same -- the whole board changes at once
+0A3C  5D                		str 	rd
+0A3D  1D                		inc 	rd
+0A3E  8D                		glo 	rd
+0A3F  FB 40             		xri 	64
+0A41  3A 3B             		bnz 	FC_FillLoop
+0A43  F8 56             		ldi 	ColourState 								; remember that the power-pill palette is loaded
+0A45  AA                		plo 	ra
+0A46  F8 01             		ldi 	1
+0A48  5A                		str 	ra
+0A49  30 93             		br 		FC_Done
+
+0A4B                    FC_NotChasing:
+0A4B  F8 56             		ldi 	ColourState 								; mark that the normal palette is in use
+0A4D  AA                		plo 	ra
+0A4E  F8 00             		ldi 	0
+0A50  5A                		str 	ra
+                        															; fall through into SpriteColour
+
+                        ; ---------------------------------------------------------------------------------------------------------------------------------------
+                        ;	SpriteColour - repaint the board, then give every live sprite its own colour.
+                        ;
+                        ;	Fills all 64 cells with BaseColour, then for each of the six sprite records writes that sprite's colour into the single cell
+                        ;	containing its centre. Sprites are 5x4 and cells are 8x4, so the sprite is mostly-but-not-entirely inside that cell -- see
+                        ;	COLOUR.md for the measurement. This is the experiment that decides whether the geometry is worth rewriting.
+                        ; ---------------------------------------------------------------------------------------------------------------------------------------
+
+0A51                    SpriteColour:
+0A51  E2                		sex 	r2 											; the stack, for the one add below
+0A52  F8 0B             		ldi 	$0B
+0A54  BD                		phi 	rd
+0A55  F8 00             		ldi 	0
+0A57  AD                		plo 	rd
+0A58                    SC_Fill:
+0A58  F8 07             		ldi 	BaseColour
+0A5A  5D                		str 	rd
+0A5B  1D                		inc 	rd
+0A5C  8D                		glo 	rd
+0A5D  FB 40             		xri 	64
+0A5F  3A 58             		bnz 	SC_Fill
+
+0A61  F8 0A             		ldi 	>SpriteColours 								; RE -> the per-sprite colours
+0A63  BE                		phi 	re
+0A64  F8 94             		ldi 	<SpriteColours
+0A66  AE                		plo 	re
+0A67  F8 60             		ldi 	SpriteStorage 								; RA -> first sprite record
+0A69  AA                		plo 	ra
+0A6A                    SC_Sprite:
+0A6A  1A                		inc 	ra 											; third byte of the record is the graphic;
+0A6B  1A                		inc 	ra
+0A6C  0A                		ldn 	ra 											; zero means the sprite is not on screen
+0A6D  2A                		dec 	ra
+0A6E  2A                		dec 	ra
+0A6F  32 8A             		bz 		SC_Next
+
+0A71  0A                		ldn 	ra 											; X position -> cell column
+0A72  FC 03             		adi 	3 											; centre of the 5-wide sprite
+0A74  F6                		shr
+0A75  F6                		shr
+0A76  F6                		shr
+0A77  22                		dec 	r2 											; hold the column on the stack
+0A78  52                		str 	r2
+0A79  1A                		inc 	ra
+0A7A  0A                		ldn 	ra 											; Y position -> cell band
+0A7B  2A                		dec 	ra
+0A7C  FC 02             		adi 	2 											; centre of the 4-tall sprite
+0A7E  F6                		shr
+0A7F  F6                		shr
+0A80  FE                		shl 												; band * 8
+0A81  FE                		shl
+0A82  FE                		shl
+0A83  F4                		add 												; + column
+0A84  12                		inc 	r2
+0A85  FA 3F             		ani 	63 											; stay inside the 64 cells whatever happens
+0A87  AD                		plo 	rd
+0A88  0E                		ldn 	re 											; this sprite's colour
+0A89  5D                		str 	rd
+0A8A                    SC_Next:
+0A8A  1E                		inc 	re
+0A8B  8A                		glo 	ra 											; on to the next 16-byte record
+0A8C  FC 10             		adi 	SpriteRecordSize
+0A8E  AA                		plo 	ra
+0A8F  FB C0             		xri 	SpriteStorageEnd
+0A91  3A 6A             		bnz 	SC_Sprite
+0A93                    FC_Done:
+0A93  D3                		sep 	r3
+
+                        ;	Pacman yellow, the four ghosts distinct, the bonus white. The board itself is white, so colour means "something is here".
+
+0A94                    SpriteColours:
+0A94  05                		.db 	5 											; 0 Pacman   yellow
+0A95  01                		.db 	1 											; 1 ghost    red
+0A96  03                		.db 	3 											; 2 ghost    magenta
+0A97  06                		.db 	6 											; 3 ghost    cyan
+0A98  04                		.db 	4 											; 4 ghost    green
+0A99  07                		.db 	7 											; 5 bonus    white
 0DEC  1E                		inc 	re 											; increment score index counter
 0DED  8E                		glo 	re
 0DEE  FB 07             		xri 	7 											; reached seven, end of score write.
@@ -1961,6 +2191,18 @@ EATCOUNTER         0044 E  FC_DONE            0A93    FC_FILL            0A34
 FC_FILLLOOP        0A3B    FC_FLASHB          0A32    FC_NOBEEP          0A24
 FC_NOTCHASING      0A4B    FIXUPOUTSTANDING   0C2D    FRAME              004C E
 FRAMECOLOUR        0A12    FRAMESPERCHASINGTIMER                         0080 E
+BASECOLOUR         0007 E  BCS_EXIT           0C6B    BGS_BLANK          0C51
+BLANK              046C    BONUSFRAMECOUNTER  0053 E  
+BONUSINITIALISEDATA                           0C10    BONUSRATE          00C0 E
+BONUS_COLLIDEPLAYER                           0C54    BONUS_GETSPRITE    0C44
+CHASINGTIMER       0052 E  CHASINGZERO        0DA7    CHECKPLAYEREAT     07A0
+CHERRY             0468    CI_LOOP            0A06    COLOURINIT         0A00
+COLOURSTATE        0056 E  CPE_ADDTENSTOSCORE 07D4    CPE_EXIT           07F4
+CPE_ISPELLET       07F3    DEAD               0DF2    DEATH              0054 E
+EATCOUNTER         0044 E  FC_DONE            0A93    FC_FILL            0A34
+FC_FILLLOOP        0A3B    FC_FLASHB          0A32    FC_NOBEEP          0A24
+FC_NOTCHASING      0A4B    FIXUPOUTSTANDING   0C2D    FRAME              004C E
+FRAMECOLOUR        0A12    FRAMESPERCHASINGTIMER                         0080 E
 FXO_EXIT           0C43    GCP_EATENGHOST     0D0C    GGM1               0CF7
 GGM_CHECKINVERT    0CE1    GGM_EXIT           0CFC    GGM_HORIZONTAL     0CCF
 GGM_HORIZONTAL1    0CDD    GGM_NOTCHASING     0CEC    GGM_NOTINPEN       0CAA
@@ -1984,6 +2226,7 @@ MAZEDATA           0000 E  MOVESPRITE         067F    MSP_MOVEOKAY       06A6
 MSP_NOSIGN1        06C4    MSP_NOSIGN2        06CE    MSP_NOTFIRST       06E0
 NEXTLEVEL          0D3D    NOCMETHOD          07F7    NODELAY            0D90
 NOMMETHOD          07F8    NOSMETHOD          07F5    OUTPUTCHAR         0DDF
+NOMMETHOD          07F8    NOSMETHOD          07F5    OUTPUTCHAR         0DDF
 OUTSTANDING100POINTS                          0055 E  PACMANCLOSED       0448
 PACMANDOWN         0450    PACMANLEFT         0454    PACMANRIGHT        0458
 PACMANUP           044C    PELLET             0440    
@@ -2001,7 +2244,23 @@ RD                 000D E  RE                 000E E  RESTARTSPRITES     0D57
 RF                 000F E  RN_NOXOR           04F6    SAMELEVEL          0D46
 SCANKEYPAD         04C4    SCORE              0046 E  SCOREWRITELOOP     0DCC
 SC_FILL            0A58    SC_NEXT            0A8A    SC_SPRITE          0A6A
+SCANKEYPAD         04C4    SCORE              0046 E  SCOREWRITELOOP     0DCC
+SC_FILL            0A58    SC_NEXT            0A8A    SC_SPRITE          0A6A
 SHIFTXORDRAWERBASE 0474    SKBLOOP            04CB    SKBSKIP            04D9
+SLOW               0D88    SLOW2              0D85    SPRITECOLOUR       0A51
+SPRITECOLOURS      0A94    SPRITECOUNT        0006 E  SPRITELOADANDPLOT  04FF
+SPRITEPLOT         0506    SPRITERECORDSIZE   0010 E  SPRITESHIFT        0744
+SPRITESTORAGE      0060 E  SPRITESTORAGEEND   00C0 E  SPRP_EXIT          054A
+SPRP_LOOP          0532    SPRP_NOPLOT        054C    SSH_ADDHORIZONTAL  075D
+SSH_ADDVERTICAL    076B    SSH_DOWN           0768    SSH_EXIT           076D
+SSH_LEFT           0757    SSH_RIGHT          075B    SSH_UP             0763
+STARTCODE          0400    STARTGAME          0D25    STUDIO2BEEPTIMER   00CD E
+SXD0               049B    SXD1               049A    SXD2               0499
+SXD3               0498    SXD4               049F    SXD4_2             04B5
+SXD5               04A8    SXD5_2             04AF    SXD6               048A
+SXD7               0482    SXDXORWORD         04BB    ULM_DIVIDE         071C
+ULM_DIVIDEEND      0723    ULM_EXIT           073D    ULM_MOVEVERTICAL   070A
+UPDATELEGALMOVES   06F8    VIDEOPAGE          0009 E  WAITKEY0           0D4D
 SLOW               0D88    SLOW2              0D85    SPRITECOLOUR       0A51
 SPRITECOLOURS      0A94    SPRITECOUNT        0006 E  SPRITELOADANDPLOT  04FF
 SPRITEPLOT         0506    SPRITERECORDSIZE   0010 E  SPRITESHIFT        0744

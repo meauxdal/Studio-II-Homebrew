@@ -23,9 +23,9 @@
 ; ***************************************************************************************************************************************
 ; ***************************************************************************************************************************************
 
-RamPage	= $10												
-VideoPage = $11											
-ColourPage = $13											
+RamPage	= $10
+VideoPage = $11
+ColourPage = $13
 
 Studio2BeepTimer = $CD 										; Studio 2 Beep Counter
 Studio2SyncTimer = $CE 										; Studio 2 Syncro timer.
@@ -87,9 +87,9 @@ MissileLifeSpan = 24 										; number of missile moves before self-termination
 ; ***************************************************************************************************************************************
 
     	.include "1802.inc"
-    	.org    800h										
+    	.org    800h
 StartCode:
-    	.db     >(StartGame),<(StartGame)					; This is required for the Studio 2, which runs from StartGame with P = 3
+    	.db     >(StartGame),<(StartGame)
 
 ; ***************************************************************************************************************************************
 ;
@@ -185,12 +185,7 @@ DrawAsteroid:
 		ldi 	$FF 										; set 'first plot' flag in RB.0 - stops overwriting of first dot.
 		phi 	rb 
 
-		ldi 	ColourPage									
-														; plane 0, which makes them yellow-green while the ship, its
-														; shots and the score stay cyan. Nothing in this game reads
-														; the screen back -- collisions are worked out from the object
-														; coordinates -- so a rock can leave plane 0 entirely, which is
-														; what buys the second colour for one changed constant.
+		ldi 	ColourPage
 		phi 	rf
 		phi 	re
 		phi 	rd
@@ -798,10 +793,9 @@ RestartCurrentLevel:
 		plo 	ra
 		ldi 	8 											; and RD to VP Line 1
 		plo 	rd
-RCL_Clear: 													
-		lbr 	ClearBothPlanes 							; board in yellow. The routine is on the $E00 page because this
-		.db 	0,0,0,0 									; one is full -- the four pad bytes keep every address below
-															; here, and every short branch that depends on one, unmoved.
+RCL_Clear:
+		lbr 	ClearBothPlanes
+		.db 	0,0,0,0
 RCL_ClearDone:
 		ghi 	r2 											; read lives left
 		phi 	re
@@ -1623,16 +1617,6 @@ AsteroidGraphics:
 
 		.db 	0
 
-; ***************************************************************************************************************************************
-;
-;										Toshiba Visicom COM-100 -- clear both bit planes
-;
-;	The Visicom's picture is two planes, $1100 and $1300, and the rocks live in the second one. Clearing only the first would leave
-;	the previous level's rocks on the board in yellow-green with nothing underneath them.
-;
-;	RA is left at $1200 on exit, exactly where the original single-plane loop left it, because RA.0 wrapping carries into RA.1 and
-;	the code below RCL_Clear was written around that.
-;
 ; ***************************************************************************************************************************************
 
 		.org 	$E00
