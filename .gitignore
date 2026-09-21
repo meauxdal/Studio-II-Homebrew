@@ -1,2 +1,5 @@
 /.local-checks
 /alan-source
+/build
+__pycache__/
+*.pyc

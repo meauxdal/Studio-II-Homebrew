@@ -1,2 +1,19 @@
-# studio2-games
-Repository for my RCA Studio 2 Homebrew games and source
+# Studio-II-Homebrew
+
+Homebrew games for the RCA Studio II family, originally written by Paul Robson and azya52, with Studio III / Visicom editions and additional modifications by Alan Steremberg and Elle Ball.
+
+## Build
+
+Install [Python 3.9 or newer](https://www.python.org/downloads/) and either GCC or Clang. Then, from the repository root, run:
+
+```shell
+python build.py
+```
+
+Or for one game:
+
+```shell
+python build.py pacman
+```
+
+See [Visicom support](docs/visicom.md) for technical details of the Toshiba Visicom COM-100 ports.
