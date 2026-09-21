@@ -834,47 +834,6 @@
 0BFE  20                        .db     MVLeft
 0BFF  A0                        .db     MVUp+MVLeft
 
-                        ; ****************************************************************************
-                        ; ****************************************************************************
-                        ;
-                        ;                       Toshiba Visicom COM-100 colour
-                        ;
-                        ;       The Visicom's 1861 fetches two bytes per DMA cycle, M(R0) and
-                        ;       M(R0+$200), and takes one bit from each. Those two bits pick one of
-                        ;       four fixed colours for that single pixel:
-                        ;
-                        ;           plane 1 ($13xx)  plane 0 ($11xx)   colour
-                        ;                  0                0          dark green (the background)
-                        ;                  0                1          light cyan
-                        ;                  1                0          yellow-green
-                        ;                  1                1          red
-                        ;
-                        ;       Combat is two tanks, and in monochrome the hardest thing about it is
-                        ;       working out which one is yours. So player 2's vehicle and its missile
-                        ;       are mirrored into plane 1, which makes them red where player 1, the
-                        ;       barriers and the frame stay cyan.
-                        ;
-                        ;       This is a TINT, not a move. XORDraw ANDs every graphic byte against the
-                        ;       screen to detect collisions, so an object has to stay in plane 0 or the
-                        ;       tanks would drive straight through each other. Adding plane 1 on top is
-                        ;       invisible to that test, which is exactly why it is safe -- and it is
-                        ;       also why there is no third colour here: yellow-green needs a pixel that
-                        ;       is absent from plane 0, and nothing on this screen can afford that.
-                        ;
-                        ;       Which object is being drawn is read straight off RF, the sprite record
-                        ;       pointer XORDraw was handed. RF.1 is the data page only for the two
-                        ;       vehicle records -- barriers and prompts point into ROM -- and RF.0 bit 4
-                        ;       separates the players, because player 1's record is at $1000 and player
-                        ;       2's at $1010. RF does not move during the draw loop, so every byte of an
-                        ;       object takes the same plane and the erase XOR always cancels.
-                        ;
-                        ;       TintPlane1 is entered with SEP R7, R7 being the one register the game
-                        ;       never touches, and returns with SEP R4, which is XORDraw's own program
-                        ;       counter.
-                        ;
-                        ; ****************************************************************************
-                        ; ****************************************************************************
-
 0C00                            .org    $C00                    ; a spare cartridge page
 
 0C00                    ColourInit:
@@ -889,10 +848,8 @@
 0C0B  5A                        str     ra
 0C0C  C0 0900                   lbr     MainLoop
 
-                        ; The score digits are written over the top of whatever was there -- an overwrite, not an
                         ; XOR -- so plane 1 has to be cleared underneath them. Miss this and a tank that happened to
                         ; be sitting where the score goes leaves its red behind as a yellow impression, because the
-                        ; digit clears plane 0 and nothing clears plane 1 until the next round starts.
 0C0F                    DrawDigitBoth:
 0C0F  BB                        phi     rb
 0C10  46                        lda     r6                      ; read byte from data

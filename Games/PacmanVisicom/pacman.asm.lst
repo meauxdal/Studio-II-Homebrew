@@ -100,7 +100,6 @@
       = 0055            Outstanding100Points = $55 									; the number of outstanding units of 100 points to be added to the score
       = 0013            ColourPage = $13 											
       = 0056            PlaneBase = $56 											
-                        															; rather than on the stack -- see SPRP_Planes for why
                         ;
                         ;	These are the six sprites : Player (0) Ghosts (1-4) Bonus (5) all of which are 16 bytes ong
                         ;
@@ -139,8 +138,6 @@
 0800                    StartCode:
 0800  0C00                  	.db     >(ColourInit),<(ColourInit)					; This is required for the Studio 2, which runs from StartGame with P = 3
                             														
-                            														; CDP1864 colour RAM and then long-branches to StartGame. Done this
-                            														; way because $400-$7FF has 4 bytes free and $C00-$DFF has 2.
 
                         ; ***************************************************************************************************************************************
                         ;
@@ -1744,44 +1741,6 @@
 0EF0  3A CC             		bnz 	ScoreWriteLoop
 
 0EF2  30 F2             Dead:	br 		Dead
-
-                        ; ***************************************************************************************************************************************
-                        ;
-                        ;												Toshiba Visicom COM-100 colour support
-                        ;
-                        ;	The Visicom has no colour RAM. Its CDP1861 reads *two* bytes per DMA cycle -- M(R0) and M(R0+$200) -- and takes one bit from
-                        ;	each. Those two bits pick one of four fixed colours for that single pixel:
-                        ;
-                        ;		plane 1 ($13xx)   plane 0 ($11xx)   colour
-                        ;		       0                 0          dark green  (the background)
-                        ;		       0                 1          light cyan
-                        ;		       1                 0          yellow-green
-                        ;		       1                 1          red
-                        ;
-                        ;	So colour here is per pixel, not per 8x4 block as on the CDP1864, and it costs a second XOR into $1300+n whenever a sprite
-                        ;	wants a colour that needs plane 1's bit. There is no palette register and no background control: the only way to change a
-                        ;	pixel's colour is to change which planes it is drawn into.
-                        ;
-                        ;	What that buys, and what it costs:
-                        ;
-                        ;		cyan          maze, dots, edible ghosts        plane 0       one pass -- exactly what the game already did
-                        ;		yellow-green  Pacman, power pills, the cherry  plane 1       one pass, into $13xx instead of $11xx
-                        ;		red           the ghosts while they hunt       both planes   two passes
-                        ;
-                        ;	Three foreground colours is one fewer than there are ghosts, so the CDP1864 build's colour-per-ghost cannot be reproduced.
-                        ;	What replaces it is arguably better: red means *danger* and nothing else, so eating a power pill turns all four ghosts from
-                        ;	red to cyan at the moment they become edible. That cue costs nothing at all, because the game already swaps their graphic to
-                        ;	GhostReverse and the plane mask is looked up from the graphic.
-                        ;
-                        ;	Looking the mask up from the graphic is also what keeps draw and erase in step. A sprite is erased by XORing back the graphic
-                        ;	stored in its record at +2, so the erase and the draw always agree about the planes even when the sprite changed colour in
-                        ;	between. No extra state, and nothing to get out of sync.
-                        ;
-                        ;	What is gone from the CDP1864 build: the 64-cell colour table, the per-frame SpriteColour repaint (about 500 instructions a
-                        ;	frame), and the white/magenta board flash. The flash has no equivalent here -- there is no global palette to toggle, and
-                        ;	repainting a plane is 256 stores rather than 64 -- but the ghosts changing colour makes the same state just as visible.
-                        ;
-                        ; ***************************************************************************************************************************************
 
 0C00                    		.org 	$C00 										; a spare cartridge page: $800-$BFF and $D00-$EFF are both full
 

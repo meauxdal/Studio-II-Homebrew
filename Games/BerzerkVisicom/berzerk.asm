@@ -132,7 +132,6 @@ DRM_WriteFF: 												; write top/bottom
 DRM_Write: 													
 		lbr 	DRM_WriteBoth 								; has to, because the room clear repaints every byte of plane 0
 		.db 	0,0 										; and would otherwise leave the last room's red robots behind.
-															; Exactly five bytes, so nothing below here moves.
 DRM_ClearDone:
 
 ; ---------------------------------------------------------------------------------------------------------------------------------------
@@ -1649,30 +1648,8 @@ CRBT_Exit:
 
 		.org 	$DFF
 
-; ***************************************************************************************************************************************
-;
-;                          Toshiba Visicom COM-100 colour -- the relocated plotter
-;
-;	The Visicom's 1861 fetches M(R0) and M(R0+$200) in the same DMA cycle and takes one bit from each, so every pixel is one of four
-;	fixed colours: dark green background, light cyan (plane 0), yellow-green (plane 1) and red (both).
-;
-;	Berzerk needs one thing colour can give it that monochrome cannot: telling a robot from yourself at a glance in a room full of
-;	walls. So the robots and their shots are mirrored into plane 1, which makes them red, and the player, his missile and the walls
-;	stay cyan.
-;
-;	It is a tint, never a move. PartialXORPlot ANDs each pattern against the screen to find collisions -- that is how walking into a
-;	wall kills you -- so everything has to stay in plane 0. Adding plane 1 on top is invisible to that test. It also means there is
-;	no third colour available here: yellow-green needs a pixel absent from plane 0, and nothing in this game can afford that.
-;
-;	The routine lives on its own page because the pages it came from are full to within six bytes.
-;
-; ***************************************************************************************************************************************
-
 		.org 	$E00
 
-; The game-over score is written over whatever is still on screen -- an overwrite, not an XOR
-; -- so plane 1 has to be cleared underneath it, or a robot that happened to be standing where
-; a digit goes leaves its red behind as a yellow smudge.
 WriteDisplayByteBoth:
 		str 	re 											; save result
 		ghi 	re 											; $11 -> $13

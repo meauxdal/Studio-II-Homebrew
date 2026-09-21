@@ -121,8 +121,6 @@ SpriteStorageEnd = SpriteStorage + (SpriteRecordSize*SpriteCount)
 StartCode:
     	.db     >(ColourInit),<(ColourInit)					; This is required for the Studio 2, which runs from StartGame with P = 3
     														
-    														; CDP1864 colour RAM and then long-branches to StartGame. Done this
-    														; way because $400-$7FF has 4 bytes free and $C00-$DFF has 2.
 
 ; ***************************************************************************************************************************************
 ;
@@ -1730,27 +1728,13 @@ Dead:	br 		Dead
 ;
 ;												CDP1864 / Studio III colour support
 ;
-;	The Studio III (and the MPT-02/Victory family) put 64 colour cells behind a one-page window at $B00. Each cell covers
-;	8 pixels across by 4 display rows down, so the 64x32 screen is divided into an 8x8 grid of colour blocks. The cell for a
-;	given screen byte is indexed {row[4:2], byte_column}, which is simply (row/4)*8 + column -- so the table below is in
-;	natural reading order, eight entries per band, top band first.
 ;
-;	Three bits per cell, and NOT in {R,G,B} order -- it is the 1864's pin order:
 ;
-;		bit 0 = RED     bit 1 = BLUE     bit 2 = GREEN
 ;
-;		0 black   1 red   2 blue   3 magenta   4 green   5 yellow   6 cyan   7 white
 ;
-;	A lit pixel takes its cell's colour; an unlit one takes the global background, which powers up blue and is stepped by
-;	OUT 1. We deliberately do NOT issue OUT 1: on a Studio II that same port turns the display off, and leaving it alone is
-;	what keeps this one binary working on both machines. It is also what RCA themselves did -- their dual-machine cartridges
-;	(pinball and the rest) leave the background at its default blue.
 ;
-;	On a Studio II the whole of $B00 is undecoded (A9 is high, so it is neither RAM nor, unless a cartridge pages it, ROM),
-;	so every store below goes nowhere and the game runs exactly as it always did.
 ;
 ; ***************************************************************************************************************************************
-
 		.org 	$A00 										; a spare cartridge page: $400-$7FF and $C00-$DFF are both full
 
 ColourInit:
@@ -1769,17 +1753,7 @@ CI_Loop:
 
 ; ---------------------------------------------------------------------------------------------------------------------------------------
 ;	FrameColour - called once per frame from the main loop.
-;
-;	Does what the inline block it replaced did (decrement the chasing timer, beep on alternate frames) and then puts the power-pill
-;	state on the screen. This is the one piece of colour on this hardware that costs nothing in fidelity: it is a *global* state, so it
-;	needs no alignment between the 8x4 colour grid and anything the game draws.
-;
-;	While ghosts are edible the whole board flashes white/blue on an 8-frame cycle -- the same cycle the beeper already uses. The game
-;	already swaps the ghost sprite to the hollow GhostReverse shape, which is the only cue a Studio II gets; this makes it unmissable.
-;
-;	Repainting is not done every frame. While chasing it happens only when the low three bits of the timer are zero, which is exactly
-;	when the flash bit flips, so it costs 64 stores every eighth frame rather than every frame. Coming out of the chase it happens once,
-;	guarded by ColourState.
+; ---------------------------------------------------------------------------------------------------------------------------------------
 ; ---------------------------------------------------------------------------------------------------------------------------------------
 
 FrameColour:
@@ -1838,10 +1812,7 @@ FC_NotChasing:
 
 ; ---------------------------------------------------------------------------------------------------------------------------------------
 ;	SpriteColour - repaint the board, then give every live sprite its own colour.
-;
-;	Fills all 64 cells with BaseColour, then for each of the six sprite records writes that sprite's colour into the single cell
-;	containing its centre. Sprites are 5x4 and cells are 8x4, so the sprite is mostly-but-not-entirely inside that cell -- see
-;	COLOUR.md for the measurement. This is the experiment that decides whether the geometry is worth rewriting.
+; ---------------------------------------------------------------------------------------------------------------------------------------
 ; ---------------------------------------------------------------------------------------------------------------------------------------
 
 SpriteColour:
@@ -1918,27 +1889,13 @@ SpriteColours:
 ;
 ;												CDP1864 / Studio III colour support
 ;
-;	The Studio III (and the MPT-02/Victory family) put 64 colour cells behind a one-page window at $B00. Each cell covers
-;	8 pixels across by 4 display rows down, so the 64x32 screen is divided into an 8x8 grid of colour blocks. The cell for a
-;	given screen byte is indexed {row[4:2], byte_column}, which is simply (row/4)*8 + column -- so the table below is in
-;	natural reading order, eight entries per band, top band first.
 ;
-;	Three bits per cell, and NOT in {R,G,B} order -- it is the 1864's pin order:
 ;
-;		bit 0 = RED     bit 1 = BLUE     bit 2 = GREEN
 ;
-;		0 black   1 red   2 blue   3 magenta   4 green   5 yellow   6 cyan   7 white
 ;
-;	A lit pixel takes its cell's colour; an unlit one takes the global background, which powers up blue and is stepped by
-;	OUT 1. We deliberately do NOT issue OUT 1: on a Studio II that same port turns the display off, and leaving it alone is
-;	what keeps this one binary working on both machines. It is also what RCA themselves did -- their dual-machine cartridges
-;	(pinball and the rest) leave the background at its default blue.
 ;
-;	On a Studio II the whole of $B00 is undecoded (A9 is high, so it is neither RAM nor, unless a cartridge pages it, ROM),
-;	so every store below goes nowhere and the game runs exactly as it always did.
 ;
 ; ***************************************************************************************************************************************
-
 		.org 	$A00 										; a spare cartridge page: $400-$7FF and $C00-$DFF are both full
 
 ColourInit:
@@ -1957,17 +1914,7 @@ CI_Loop:
 
 ; ---------------------------------------------------------------------------------------------------------------------------------------
 ;	FrameColour - called once per frame from the main loop.
-;
-;	Does what the inline block it replaced did (decrement the chasing timer, beep on alternate frames) and then puts the power-pill
-;	state on the screen. This is the one piece of colour on this hardware that costs nothing in fidelity: it is a *global* state, so it
-;	needs no alignment between the 8x4 colour grid and anything the game draws.
-;
-;	While ghosts are edible the whole board flashes white/blue on an 8-frame cycle -- the same cycle the beeper already uses. The game
-;	already swaps the ghost sprite to the hollow GhostReverse shape, which is the only cue a Studio II gets; this makes it unmissable.
-;
-;	Repainting is not done every frame. While chasing it happens only when the low three bits of the timer are zero, which is exactly
-;	when the flash bit flips, so it costs 64 stores every eighth frame rather than every frame. Coming out of the chase it happens once,
-;	guarded by ColourState.
+; ---------------------------------------------------------------------------------------------------------------------------------------
 ; ---------------------------------------------------------------------------------------------------------------------------------------
 
 FrameColour:
@@ -2026,10 +1973,7 @@ FC_NotChasing:
 
 ; ---------------------------------------------------------------------------------------------------------------------------------------
 ;	SpriteColour - repaint the board, then give every live sprite its own colour.
-;
-;	Fills all 64 cells with BaseColour, then for each of the six sprite records writes that sprite's colour into the single cell
-;	containing its centre. Sprites are 5x4 and cells are 8x4, so the sprite is mostly-but-not-entirely inside that cell -- see
-;	COLOUR.md for the measurement. This is the experiment that decides whether the geometry is worth rewriting.
+; ---------------------------------------------------------------------------------------------------------------------------------------
 ; ---------------------------------------------------------------------------------------------------------------------------------------
 
 SpriteColour:

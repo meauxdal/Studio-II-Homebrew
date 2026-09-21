@@ -138,11 +138,11 @@ NewPoint:
         ldi     0                       
         plo     rd
 _DrawFrame:                             
-        sep     r7           ; offset in plane 1 as it goes. The rink repaint
+        sep     r7           
         .dw     DrawFrameBoth
-_DFBack:                                ; rewrites every byte of plane 0, so without this
-                                        ; the paddles red would be XORed back off at every
-                                        ; point. Three bytes either way.
+_DFBack:                                
+                                        
+                                        
         glo     rd
         ani     $F8
         bz      _DrawSolid              ; top line
@@ -713,30 +713,6 @@ _SetYI: phi     rb
 
         .org    0BFFh                   ; fill it
         .db     0FFh
-
-; ***************************************************************************************************************************************
-;
-;                       Toshiba Visicom COM-100 colour -- player 2's paddles
-;
-;       The Visicom's 1861 fetches M(R0) and M(R0+$200) in the same DMA cycle and takes a bit from each, so a pixel in plane 0 alone
-;       is cyan and a pixel in both planes is red. Player 2's two paddles go into both; player 1's, the ball, the rink and the score
-;       stay in plane 0 alone.
-;
-;       This is a tint, never a move: the ball's collision test reads the framebuffer back (BallDraw, "AND with the screen"), so
-;       everything the ball can hit has to stay in plane 0. Adding plane 1 on top is invisible to that test.
-;
-;       Two things this has to get right, both of which the first attempt got wrong.
-;
-;       WHICH paddles. Not the ones on the right of the screen -- PadInfo puts the Right Striker at column 2, over on the left. It is
-;       bit 3 of the record address, which is the same test the game itself uses in _MovePaddles: Left Goalie $04, Left Striker $07,
-;       Right Goalie $0A, Right Striker $0D, so player 2 is $0A and $0D.
-;
-;       And EVERY write, not just the first. The game does not redraw a paddle when it moves; _PMoveNow toggles the pixel at each end
-;       and scrolls it. Tint only the initial draw and the red stays behind at the position the paddle started from, on every point,
-;       for the whole game. Both writes are mirrored here, so plane 1 follows plane 1-for-1 and can never drift -- and because it is
-;       a mirror rather than a rebuild, nothing is ever momentarily blank while the display is scanning it.
-;
-; ***************************************************************************************************************************************
 
         .org    $B00
 
