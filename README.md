@@ -15,5 +15,3 @@ Or for one game:
 ```shell
 python build.py pacman
 ```
-
-See [Visicom support](docs/visicom.md) for technical details of the Toshiba Visicom COM-100 ports.
